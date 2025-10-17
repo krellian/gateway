@@ -1,6 +1,6 @@
 FROM node:20-bookworm-slim
 
-EXPOSE 8080 4443
+EXPOSE 80 443
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN set -x && \
