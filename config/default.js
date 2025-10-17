@@ -18,10 +18,10 @@ module.exports = {
 
   ports: {
     // HTTPS port
-    https: 4443,
+    https: 443,
 
     // HTTP port
-    http: 8080,
+    http: 80,
 
     // IPC port -- changing this will likely break all add-ons
     ipc: 9500,
