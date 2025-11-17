@@ -245,7 +245,7 @@ class LinuxRaspbianPlatform extends BasePlatform {
             }
             if (value.indexOf('CCMP') >= 0) {
               cipher += '+ccmp';
-            }
+            } 
             break;
         }
       }

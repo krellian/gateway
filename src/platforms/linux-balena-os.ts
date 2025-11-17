@@ -10,7 +10,7 @@ import ip from 'ip';
 import { Netmask } from 'netmask';
 import BasePlatform from './base';
 import NetworkManager, { ConnectionSettings } from './utilities/network-manager';
-import { LanMode, NetworkAddresses, WirelessNetwork } from './types';
+import { LanMode, WirelessMode, NetworkAddresses, WirelessNetwork } from './types';
 
 export class LinuxBalenaOSPlatform extends BasePlatform {
   /**
@@ -296,6 +296,90 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
     }
     return true;
   }
+
+  /**
+   * Get the wireless mode and options.
+   *
+   * @returns {Promise<WirelessMode>} {enabled: true|false, mode: 'ap|sta|...', options: {ssid, key}}
+   */
+  async getWirelessModeAsync(): Promise<WirelessMode> {
+    const result: WirelessMode = {
+      enabled: false,
+      mode: '',
+      options: {},
+    };
+    let devicesList:Array<string> = [];
+    // Get a list of Wi-Fi devices
+    return NetworkManager.getWifiDevices()
+      .then((devices) => {
+        devicesList = devices;
+        // Return the path of the first Wi-Fi device
+        return NetworkManager.getDeviceState(devicesList[0]);
+      }).then((state) => {
+        // Detect if the device is currently connected
+        // (State 100 means device is activated and has a network connection)
+        if(state === 100) {
+          result.enabled = true;
+        }
+        return NetworkManager.getDeviceConnection(devicesList[0]);
+      })
+      .then((connection) => {
+        return NetworkManager.getConnectionSettings(connection);
+      })
+      .then((settings: ConnectionSettings) => {
+        // Detect if in access point mode
+        if(settings['802-11-wireless'] && settings['802-11-wireless'].mode == 'ap') {
+          result.mode = 'ap';
+        }
+        // TODO(tola): Store other stuff in options
+        return result;
+      })
+      .catch((error) => {
+        console.error(`Error getting wireless mode from Network Manager: ${error}`);
+        return result;
+      });
+  }
+
+  /**
+   * Get the system's hostname.
+   *
+   * @returns {string} The hostname.
+   */
+  /*getHostname(): string {
+
+  }*/
+
+  /**
+   * Get the MAC address of a network device.
+   *
+   * @param {string} device - The network device, e.g. wlan0
+   * @returns {string|null} MAC address, or null on error
+   */
+  /*getMacAddress(device: string): string | null {
+
+  }*/
+
+  /**
+   * Set DHCP server status.
+   *
+   * @param {boolean} enabled - Whether or not to enable the DHCP server
+   * @returns {boolean} Boolean indicating success of the command.
+   */
+  /*setDhcpServerStatus(enabled: boolean): boolean {
+
+  }*/
+
+  /**
+   * Get DHCP server status.
+   *
+   * @returns {boolean} Boolean indicating whether or not DHCP is enabled.
+   */
+  /*getDhcpServerStatus(): boolean {
+    const proc = child_process.spawnSync('systemctl', ['is-active', 'dnsmasq.service']);
+    return proc.status === 0;
+  }*/
+
+
 }
 
 export default new LinuxBalenaOSPlatform();

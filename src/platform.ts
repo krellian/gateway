@@ -245,6 +245,10 @@ export const setWirelessModeAsync = wrapPlatform<Promise<boolean>>(
   platform,
   'setWirelessModeAsync'
 );
+export const getWirelessModeAsync = wrapPlatform<Promise<WirelessMode>>(
+  platform,
+  'getWirelessModeAsync'
+);
 export const restartGateway = wrapPlatform<boolean>(platform, 'restartGateway');
 export const restartSystem = wrapPlatform<boolean>(platform, 'restartSystem');
 export const scanWirelessNetworks = wrapPlatform<WirelessNetwork[]>(

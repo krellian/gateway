@@ -315,6 +315,7 @@ export const serverStartup: {
 
 switch (Platform.getOS()) {
   case 'linux-raspbian':
+  case 'linux-balena-os':
     migration
       .then(() => {
         return isWiFiConfigured();

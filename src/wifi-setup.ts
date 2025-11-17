@@ -7,7 +7,7 @@ import os from 'os';
 import * as Platform from './platform';
 import * as Settings from './models/settings';
 import sleep from './sleep';
-import { WirelessNetwork } from './platforms/types';
+import { NetworkAddresses, WirelessMode, WirelessNetwork } from './platforms/types';
 
 const hbs = expressHandlebars.create({
   helpers: {
@@ -326,17 +326,24 @@ export function isWiFiConfigured(): Promise<boolean> {
 
   return Settings.getSetting('wifiskip')
     .catch(() => false)
-    .then((skipped) => {
+    .then(async (skipped) => {
       if (skipped) {
         ensureAPStopped();
         return Promise.resolve(true);
       }
 
       // If wifi wasn't skipped, but there is an ethernet connection, just move on
-      const addresses = Platform.getNetworkAddresses();
+      let addresses: NetworkAddresses;
+      if (Platform.implemented('getNetworkAddressesAsync')) {
+        addresses = await Platform.getNetworkAddressesAsync();
+      } else if (Platform.implemented('getNetworkAddresses')) {
+        addresses = Platform.getNetworkAddresses();
+      } else {
+        throw new Error('Unable to retrieve network addresses on this platform');
+      }
       if (addresses.lan) {
         ensureAPStopped();
-        return Promise.resolve(true);
+        return true;
       }
 
       // Wait until we have a working wifi connection. Retry every 3 seconds up
@@ -372,11 +379,19 @@ export function isWiFiConfigured(): Promise<boolean> {
  *                    promise is rejected.
  */
 function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
-  return new Promise(function (resolve, reject) {
+  return new Promise(async function (resolve, reject) {
     let attempts = 0;
 
     // first, see if any networks are already configured
-    const status = Platform.getWirelessMode();
+    let status: WirelessMode;
+    if (Platform.implemented('getWirelessModeAsync')) {
+      status = await Platform.getWirelessModeAsync();
+    } else if (Platform.implemented('getNetworkAddresses')) {
+      status = Platform.getWirelessMode();
+    } else {
+      throw new Error('Unable to retrieve wireless mode on this platform');
+    }
+
     if (
       status.options &&
       status.options.networks &&
@@ -392,9 +407,16 @@ function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
       reject();
     }
 
-    function check(): void {
+    async function check(): Promise<void> {
       attempts++;
-      const status = Platform.getWirelessMode();
+      let status: WirelessMode;
+      if (Platform.implemented('getWirelessModeAsync')) {
+        status = await Platform.getWirelessModeAsync();
+      } else if (Platform.implemented('getNetworkAddresses')) {
+        status = Platform.getWirelessMode();
+      } else {
+        throw new Error('Unable to retrieve wireless mode on this platform');
+      }
       if (status.enabled && status.mode === 'sta') {
         console.log('wifi-setup: waitForWifi: connection found');
         checkForAddress();

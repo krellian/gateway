@@ -15,6 +15,7 @@ export interface ConnectionSettings {
   };
   '802-11-wireless'?: {
     ssid: Array<number>;
+    'mode'?: string;
   };
   '802-11-wireless-security'?: {
     'key-mgmt'?: string;
@@ -157,6 +158,40 @@ class NetworkManager {
       }
     }
     return wifiDevices;
+  }
+
+  /**
+   * Get the current state of a device.
+   * 
+   * @param {string} path Object path for device.
+   * @returns {Promise<integer>} The current state (100 means activated)
+   * Full list of states at:
+   * https://networkmanager.dev/docs/api/latest/nm-dbus-types.html#NMDeviceState
+   */
+  getDeviceState(path: string): Promise<integer> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        path,
+        'org.freedesktop.NetworkManager.Device',
+        (error, iface) => {
+          if (error) {
+            console.error(error);
+            reject();
+            return;
+          }
+          iface.getProperty('State', (error, state) => {
+            if (error) {
+              console.error(error);
+              reject();
+              return;
+            }
+            return state;
+          });
+        }
+      );
+    });
   }
 
   /**
