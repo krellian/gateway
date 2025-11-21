@@ -164,11 +164,11 @@ class NetworkManager {
    * Get the current state of a device.
    * 
    * @param {string} path Object path for device.
-   * @returns {Promise<integer>} The current state (100 means activated)
+   * @returns {Promise<number>} The current state (100 means activated)
    * Full list of states at:
    * https://networkmanager.dev/docs/api/latest/nm-dbus-types.html#NMDeviceState
    */
-  getDeviceState(path: string): Promise<integer> {
+  getDeviceState(path: string): Promise<number> {
     this.start();
     return new Promise((resolve, reject) => {
       this.systemBus!.getInterface(
@@ -179,15 +179,13 @@ class NetworkManager {
           if (error) {
             console.error(error);
             reject();
-            return;
           }
-          iface.getProperty('State', (error, state) => {
+          iface.getProperty('State', (error, state:any) => {
             if (error) {
               console.error(error);
               reject();
-              return;
             }
-            return state;
+            resolve(state);
           });
         }
       );

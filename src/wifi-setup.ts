@@ -386,7 +386,7 @@ function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
     let status: WirelessMode;
     if (Platform.implemented('getWirelessModeAsync')) {
       status = await Platform.getWirelessModeAsync();
-    } else if (Platform.implemented('getNetworkAddresses')) {
+    } else if (Platform.implemented('getWirelessMode')) {
       status = Platform.getWirelessMode();
     } else {
       throw new Error('Unable to retrieve wireless mode on this platform');

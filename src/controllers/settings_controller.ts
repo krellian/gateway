@@ -153,8 +153,12 @@ function build(): express.Router {
   controller.get('/domain', auth, async (_request, response) => {
     try {
       let hostname = '';
-      if (Platform.implemented('getHostname')) {
+      if (Platform.implemented('getHostnameAsync')) {
+        hostname = await Platform.getHostnameAsync();
+      } else if (Platform.implemented('getHostName')) {
         hostname = Platform.getHostname();
+      } else {
+        throw new Error('Unable to retrieve network addresses on this platform');
       }
 
       let enabled = false;

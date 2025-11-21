@@ -12,7 +12,14 @@ import BasePlatform from './base';
 import NetworkManager, { ConnectionSettings } from './utilities/network-manager';
 import { LanMode, WirelessMode, NetworkAddresses, WirelessNetwork } from './types';
 
+
+
 export class LinuxBalenaOSPlatform extends BasePlatform {
+
+  // HTTP URL and API key for balenaOS supervisor API
+  BALENA_SUPERVISOR_ADDRESS = process.env.BALENA_SUPERVISOR_ADDRESS
+  BALENA_SUPERVISOR_API_KEY = process.env.BALENA_SUPERVISOR_API_KEY
+
   /**
    * Disconnect NetworkManager.
    */
@@ -300,7 +307,15 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
   /**
    * Get the wireless mode and options.
    *
-   * @returns {Promise<WirelessMode>} {enabled: true|false, mode: 'ap|sta|...', options: {ssid, key}}
+   * @returns {Promise<WirelessMode>} Promise which resolves with a WirelessMode object
+   * {
+   *   enabled: true|false,
+   *   mode: 'ap'|'sta',
+   *   options: {
+   *     ssid: <ssid>
+   *     networks: [<ssid>]
+   *   }
+   * }
    */
   async getWirelessModeAsync(): Promise<WirelessMode> {
     const result: WirelessMode = {
@@ -308,33 +323,49 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
       mode: '',
       options: {},
     };
-    let devicesList:Array<string> = [];
+    let wifiDevicePath: string = '';
     // Get a list of Wi-Fi devices
     return NetworkManager.getWifiDevices()
-      .then((devices) => {
-        devicesList = devices;
+      .then((wifiDevices) => {
         // Return the path of the first Wi-Fi device
-        return NetworkManager.getDeviceState(devicesList[0]);
+        return wifiDevices[0];
+        // TODO: Deal with case of no wireless devices
+      }).then((devicePath) => {
+        wifiDevicePath = devicePath;
+        return NetworkManager.getDeviceState(wifiDevicePath);
       }).then((state) => {
-        // Detect if the device is currently connected
-        // (State 100 means device is activated and has a network connection)
-        if(state === 100) {
+        console.log(state);
+        // Detect if the device is currently in an activated state
+        // (either as an active access point or connected to an access point)
+        if (state === 100) {
           result.enabled = true;
         }
-        return NetworkManager.getDeviceConnection(devicesList[0]);
-      })
-      .then((connection) => {
-        return NetworkManager.getConnectionSettings(connection);
-      })
-      .then((settings: ConnectionSettings) => {
-        // Detect if in access point mode
-        if(settings['802-11-wireless'] && settings['802-11-wireless'].mode == 'ap') {
+        // Get object path of active connection associated with device
+        return NetworkManager.getDeviceConnection(wifiDevicePath);
+      }).then((connectionPath) => {
+        // TODO: Deal with case of no active connection
+        return NetworkManager.getConnectionSettings(connectionPath);
+      }).then((settings: ConnectionSettings) => {
+        // Check for access point wireless mode
+        if (settings['802-11-wireless'] && settings['802-11-wireless'].mode == 'ap') {
           result.mode = 'ap';
+          // Otherwise assume standard (infrastructure) mode
+        } else {
+          result.mode = 'sta';
         }
-        // TODO(tola): Store other stuff in options
+        // Check for ssid
+        if (settings['802-11-wireless'] && settings['802-11-wireless'].ssid) {
+          // Convert SSID from byte array to string
+          result.options.ssid = String.fromCharCode(...settings['802-11-wireless'].ssid);
+        }
+        // wifi-setup.ts expects options.networks to be set to an array of SSIDs if connected to a Wi-Fi network
+        // So if the Wi-Fi device is enabled and ssid is set then assume connected to that ssid
+        if (result.enabled && result.options.ssid) {
+          result.options.networks = [] as string[];
+          (result.options.networks as string[]).push(result.options.ssid as string);
+        }
         return result;
-      })
-      .catch((error) => {
+      }).catch((error) => {
         console.error(`Error getting wireless mode from Network Manager: ${error}`);
         return result;
       });
@@ -345,9 +376,21 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
    *
    * @returns {string} The hostname.
    */
-  /*getHostname(): string {
-
-  }*/
+  async getHostnameAsync(): Promise<string> {
+    const url = `${this.BALENA_SUPERVISOR_ADDRESS}/v1/device/host-config?apikey=${this.BALENA_SUPERVISOR_API_KEY}`;
+    const options = { method: 'GET' };
+    return fetch(url, options).then(async (response) => {
+      const hostConfig = await response.json();
+      if (hostConfig && hostConfig.network && hostConfig.network.hostname) {
+        return hostConfig.network.hostname;
+      } else {
+        return '';
+      }
+    }).catch((error) => {
+      console.error(`Error retrieving hostname from balenaOS supervisor API: ${error}`);
+      return '';
+    });
+  }
 
   /**
    * Get the MAC address of a network device.
