@@ -222,6 +222,7 @@ switch (getOS()) {
 }
 
 export const getDhcpServerStatus = wrapPlatform<boolean>(platform, 'getDhcpServerStatus');
+export const getDhcpServerStatusAsync = wrapPlatform<boolean>(platform, 'getDhcpServerStatusAsync');
 export const setDhcpServerStatus = wrapPlatform<boolean>(platform, 'setDhcpServerStatus');
 export const getHostname = wrapPlatform<string>(platform, 'getHostname');
 export const getHostnameAsync = wrapPlatform<string>(platform, 'getHostnameAsync');

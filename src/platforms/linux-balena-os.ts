@@ -413,16 +413,38 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
   }*/
 
   /**
-   * Get DHCP server status.
+   * Get DHCP server status (of Wi-Fi device).
    *
-   * @returns {boolean} Boolean indicating whether or not DHCP is enabled.
+   * @returns {boolean} Boolean indicating whether or not a DHCP server is running.
+   * 
+   * Note: Using NetworkManager this method could potentially be combined with getWirelessModeAsync,
+   * but it is currently kept separate for backwards compatibility with other platforms like Raspbian.
    */
-  /*getDhcpServerStatus(): boolean {
-    const proc = child_process.spawnSync('systemctl', ['is-active', 'dnsmasq.service']);
-    return proc.status === 0;
-  }*/
-
-
+  async getDhcpServerStatusAsync(): Promise<boolean> {
+    // Get a list of Wi-Fi devices
+    return NetworkManager.getWifiDevices()
+      .then((wifiDevices) => {
+        // Return the path of the first Wi-Fi device
+        return wifiDevices[0];
+        // TODO: Deal with case of no wireless devices
+      }).then((wifiDevicePath) => {
+        return NetworkManager.getDeviceConnection(wifiDevicePath);
+      }).then((connectionPath) => {
+        // TODO: Deal with case of no active connection
+        return NetworkManager.getConnectionSettings(connectionPath);
+      }).then((settings: ConnectionSettings) => {
+        // shared mode means NetworkManager should have enabled a DHCP server
+        console.dir(settings);
+        if (settings.ipv4 && settings.ipv4.method == 'shared') {
+          return true;
+        } else {
+          return false;
+        }
+      }).catch((error) => {
+        console.error(`Error getting DHCP server status from Network Manager: ${error}`);
+        return false;
+      });
+  }
 }
 
 export default new LinuxBalenaOSPlatform();

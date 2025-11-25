@@ -317,9 +317,30 @@ function defineNetwork(ssid: string, password?: string): boolean {
  *                    or not we have a connection.
  */
 export function isWiFiConfigured(): Promise<boolean> {
-  const ensureAPStopped = (): void => {
+  const ensureAPStopped = async (): Promise<void> => {
+
+      // Get DHCP server status
+      let dhcpServerStatus: boolean;
+      if (Platform.implemented('getDhcpServerStatusAsync')) {
+        dhcpServerStatus = await Platform.getDhcpServerStatusAsync();
+      } else if (Platform.implemented('getDhcpServerStatus')) {
+        dhcpServerStatus = Platform.getDhcpServerStatus();
+      } else {
+        throw new Error('Unable to get DHCP server status on this platform');
+      }
+
+      // Get wireless mode
+      let wirelessMode: string;
+      if (Platform.implemented('getWirelessModeAsync')) {
+        wirelessMode = (await Platform.getWirelessModeAsync()).mode;
+      } else if (Platform.implemented('getWirelessMode')) {
+        wirelessMode = Platform.getWirelessMode().mode;
+      } else {
+        throw new Error('Unable to get wireless mode on this platform');
+      }
+
     // If the host seems to be in AP mode (e.g. from a previous run), stop it
-    if (Platform.getDhcpServerStatus() || Platform.getWirelessMode().mode === 'ap') {
+    if (dhcpServerStatus == true || wirelessMode === 'ap') {
       stopAP();
     }
   };
