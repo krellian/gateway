@@ -775,6 +775,40 @@ class NetworkManager {
       );
     });
   }
+
+  /**
+   * Get the the current MAC address of a device by its object path.
+   * 
+   * Note the MAC address may be randomised and may not be the permanent hardware address.
+   *
+   * @param {String} path DBUS Object path for a device.
+   * @returns {Promise<string>} Promise resolves with the current MAC address of the device.
+   */
+  getDeviceMacAddress(path: string): Promise<string> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        path,
+        'org.freedesktop.NetworkManager.Device',
+        (error, iface) => {
+          if (error) {
+            console.error(error);
+            reject();
+            return;
+          }
+          iface.getProperty('HwAddress', (error, macAddress) => {
+            if (error) {
+              console.log('Unable to retrieve MAC address for device');
+              reject();
+              return;
+            }
+            resolve(macAddress);
+          });
+        }
+      );
+    });
+  }
 }
 
 export default new NetworkManager();

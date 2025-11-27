@@ -251,8 +251,8 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
     options: Record<string, unknown> = {}
   ): Promise<boolean> {
     const valid = [
-      // 'ap', //TODO: Implement ap mode
-      'sta',
+      'ap',
+      'sta'
     ];
     if (enabled && !valid.includes(mode)) {
       console.error(`Wireless mode ${mode} not supported on this platform`);
@@ -341,7 +341,7 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
           result.enabled = true;
         }
         // Get object path of active connection associated with device
-        return NetworkManager.getDeviceConnection(wifiDevicePath);
+        return NetworkManager.getDeviceConnection(wifiDevicePath);``
       }).then((connectionPath) => {
         // TODO: Deal with case of no active connection
         return NetworkManager.getConnectionSettings(connectionPath);
@@ -397,20 +397,76 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
    *
    * @param {string} device - The network device, e.g. wlan0
    * @returns {string|null} MAC address, or null on error
+   * 
+   * Note: This instance of the method currently always returns the MAC address
+   * of the first Wi-Fi device, and does not use the device argument since these
+   * descriptors are not useful when using the NetworkManager DBUS API.
    */
-  /*getMacAddress(device: string): string | null {
-
-  }*/
+  async getMacAddressAsync(device: string): Promise<string|null> {
+    // Get a list of Wi-Fi devices
+    return NetworkManager.getWifiDevices()
+      .then((wifiDevices) => {
+        // Return the path of the first Wi-Fi device
+        return wifiDevices[0];
+        // TODO: Deal with case of no wireless devices
+      }).then((wifiDevicePath) => {
+        // Get MAC address of the device
+        return NetworkManager.getDeviceMacAddress(wifiDevicePath);
+      }).then((macAddress) => {
+        return macAddress || null;
+      }).catch((error) => {
+        console.error(`Error getting MAC address for device ${device}: ${error}`);
+        return null;
+      });
+  }
 
   /**
-   * Set DHCP server status.
+   * Set DHCP server status (of Wi-Fi device).
+   * 
+   * Note: When using NetworkManager this could be combined with 
+   * setWirelessModeAsync, but it is kept separate for compatibility with 
+   * other platforms like Raspbian where it is separate.
+   * 
+   * TODO: Consider combining this with setWirelessModeAsync and changing wifi-setup.ts
    *
    * @param {boolean} enabled - Whether or not to enable the DHCP server
    * @returns {boolean} Boolean indicating success of the command.
    */
-  /*setDhcpServerStatus(enabled: boolean): boolean {
-
-  }*/
+  setDhcpServerStatusAsync(enabled: boolean): Promise<boolean> {
+    let connectionPath: string;
+    // Get a list of Wi-Fi devices
+    return NetworkManager.getWifiDevices()
+      .then((wifiDevices) => {
+        // Return the path of the first Wi-Fi device
+        return wifiDevices[0];
+        // TODO: Deal with case of no wireless devices
+      }).then((wifiDevicePath) => {
+        return NetworkManager.getDeviceConnection(wifiDevicePath);
+      }).then((path) => {
+        connectionPath = path;
+        // TODO: Deal with case of no active connection
+        // Get current settings
+        return NetworkManager.getConnectionSettings(connectionPath);
+      }).then((settings: ConnectionSettings) => {
+        // Keep all settings the same except for the IPv4 method
+        if(!settings.ipv4) {
+          return false;
+        }
+        // If enabling DHCP server set mode to 'shared'
+        if (enabled == true) {
+          settings.ipv4.method = 'shared';
+        // If disabling DHCP server set mode to 'auto' to get a dynamic IP.
+        } else {
+          settings.ipv4.method = 'auto';
+        }
+        return NetworkManager.setConnectionSettings(connectionPath, settings);
+      }).then((success) => {
+        return success;
+      }).catch((error) => {
+        console.error(`Error setting DHCP server status via Network Manager: ${error}`);
+        return false;
+      });
+  }
 
   /**
    * Get DHCP server status (of Wi-Fi device).
@@ -434,7 +490,6 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
         return NetworkManager.getConnectionSettings(connectionPath);
       }).then((settings: ConnectionSettings) => {
         // shared mode means NetworkManager should have enabled a DHCP server
-        console.dir(settings);
         if (settings.ipv4 && settings.ipv4.method == 'shared') {
           return true;
         } else {

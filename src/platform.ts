@@ -224,6 +224,7 @@ switch (getOS()) {
 export const getDhcpServerStatus = wrapPlatform<boolean>(platform, 'getDhcpServerStatus');
 export const getDhcpServerStatusAsync = wrapPlatform<boolean>(platform, 'getDhcpServerStatusAsync');
 export const setDhcpServerStatus = wrapPlatform<boolean>(platform, 'setDhcpServerStatus');
+export const setDhcpServerStatusAsync = wrapPlatform<boolean>(platform, 'setDhcpServerStatusAsync');
 export const getHostname = wrapPlatform<string>(platform, 'getHostname');
 export const getHostnameAsync = wrapPlatform<string>(platform, 'getHostnameAsync');
 export const setHostname = wrapPlatform<boolean>(platform, 'setHostname');
@@ -232,6 +233,7 @@ export const getLanModeAsync = wrapPlatform<Promise<LanMode>>(platform, 'getLanM
 export const setLanMode = wrapPlatform<boolean>(platform, 'setLanMode');
 export const setLanModeAsync = wrapPlatform<Promise<boolean>>(platform, 'setLanModeAsync');
 export const getMacAddress = wrapPlatform<string | null>(platform, 'getMacAddress');
+export const getMacAddressAsync = wrapPlatform<string | null>(platform, 'getMacAddressAsync');
 export const getMdnsServerStatus = wrapPlatform<boolean>(platform, 'getMdnsServerStatus');
 export const setMdnsServerStatus = wrapPlatform<boolean>(platform, 'setMdnsServerStatus');
 export const getNetworkAddresses = wrapPlatform<NetworkAddresses>(platform, 'getNetworkAddresses');

@@ -9,6 +9,15 @@ import * as Settings from './models/settings';
 import sleep from './sleep';
 import { NetworkAddresses, WirelessMode, WirelessNetwork } from './platforms/types';
 
+/**
+ * Wi-Fi Setup is a mini Express web application that creates a Wi-Fi hotspot if no 
+ * active network connection is detected so that a client can connect to the hotspot to
+ * connect to the gateway and configure the network.
+ * 
+ * Note: This code could be simplified greatly if the Raspbian Buster port was 
+ * removed or updated to use Raspberry Pi OS Bookworm with NetworkManager.
+ */
+
 const hbs = expressHandlebars.create({
   helpers: {
     escapeQuotes: (str: string) => `${str}`.replace(/"/g, '\\"'),
@@ -92,8 +101,16 @@ function handleCaptive(
  * Handle requests to the root URL. We display a different page depending on
  * what stage of setup we're at.
  */
-function handleRoot(_request: express.Request, response: express.Response): void {
-  const status = Platform.getWirelessMode();
+async function handleRoot(_request: express.Request, response: express.Response): Promise<void> {
+    // Get wireless mode
+    let status: WirelessMode;
+    if (Platform.implemented('getWirelessModeAsync')) {
+      status = await Platform.getWirelessModeAsync();
+    } else if (Platform.implemented('getWirelessMode')) {
+      status = Platform.getWirelessMode();
+    } else {
+      throw new Error('Unable to get wireless mode on this platform');
+    }
 
   if (!(status.enabled && status.mode === 'sta')) {
     // If we don't have a wifi connection yet, display the wifi setup page
@@ -139,9 +156,17 @@ function handleWiFiSetup(_request: express.Request, response: express.Response):
 /**
  * Handle requests to /connecting.
  */
-function handleConnecting(request: express.Request, response: express.Response): void {
-  // We assume getHostname is implemented, since this is only used on Raspberry Pi right now.
-  const domain = Platform.getHostname();
+async function handleConnecting(request: express.Request, response: express.Response): Promise<void> {
+  // Get host name
+  let domain: string;
+  if (Platform.implemented('getHostnameAsync')) {
+    domain = await Platform.getHostnameAsync();
+  } else if (Platform.implemented('getHostname')) {
+    domain = Platform.getHostname();
+  } else {
+    throw new Error('Unable to get hostname on this platform');
+  }
+
   const skip = request.body.skip === '1';
 
   if (skip) {
@@ -156,7 +181,11 @@ function handleConnecting(request: express.Request, response: express.Response):
           skip: `${skip}`,
           domain,
         });
-        stopAP();
+        return stopAP();
+      }).then((success) => {
+        if (!success) {
+          console.error('Failed to stop AP');
+        }
         WiFiSetupApp.onConnection!();
       });
     return;
@@ -184,20 +213,25 @@ function handleConnecting(request: express.Request, response: express.Response):
   // but a 5 second wait seems to work better.
   sleep(2000)
     .then(() => {
-      stopAP();
+      return stopAP();
+    }).then((success) => {
+      if (!success) {
+        console.error('Failed to stop AP');
+        throw new Error('Failed to stop AP');
+      }
       return sleep(5000);
-    })
-    .then(() => {
-      if (!defineNetwork(ssid, password)) {
+    }).then(() => {
+      return defineNetwork(ssid, password);
+    }).then(async (success) => {
+      if(!success) {
         console.error('wifi-setup: handleConnecting: failed to define network');
         throw new Error('failed to define network');
       } else {
-        return waitForWiFi(20, 3000).then(() => {
-          WiFiSetupApp.onConnection!();
-        });
+        return waitForWiFi(20, 3000);
       }
-    })
-    .catch((error) => {
+    }).then(() => {
+      WiFiSetupApp.onConnection!();
+    }).catch((error) => {
       if (error) {
         console.error('wifi-setup: handleConnecting: general error:', error);
       }
@@ -209,9 +243,19 @@ function handleConnecting(request: express.Request, response: express.Response):
  *
  * @returns {string} SSID
  */
-function getHotspotSsid(): string {
+async function getHotspotSsid(): Promise<string> {
   const base: string = config.get('wifi.ap.ssid_base');
-  const mac = Platform.getMacAddress('wlan0');
+
+  // Get MAC address
+  let mac: string | null;
+  if (Platform.implemented('getMacAddressAsync')) {
+    mac = await Platform.getMacAddressAsync('wlan0');
+  } else if (Platform.implemented('getWirelessMode')) {
+    mac = Platform.getMacAddress('wlan0');
+  } else {
+    throw new Error('Unable to get MAC address on this platform');
+  }
+
   if (!mac) {
     return base;
   }
@@ -241,10 +285,20 @@ function scan(): Promise<WirelessNetwork[]> {
   return new Promise(function (resolve) {
     let attempts = 0;
 
-    function tryScan(): void {
+    async function tryScan(): Promise<void> {
       attempts++;
 
-      const results = Platform.scanWirelessNetworks();
+      let results: WirelessNetwork[];
+      if(Platform.implemented('scanWirelessNetworksAsync')) {
+        results = await Platform.scanWirelessNetworksAsync();
+      } else if(Platform.implemented('scanWirelessNetworks')) {
+        results = Platform.scanWirelessNetworks();
+      } else {
+        console.error('Unable to scan for wireless networks on this platform');
+        results = [];
+        resolve(results);
+        return;
+      }
       if (results.length > 0) {
         resolve(results);
       } else {
@@ -267,7 +321,8 @@ function scan(): Promise<WirelessNetwork[]> {
 /**
  * Enable an access point that users can connect to to configure the device.
  *
- * This requires that hostapd and udhcpd are installed on the system but not
+ * On Raspbian
+ * this requires that hostapd and udhcpd are installed on the system but not
  * enabled, so that they do not automatically run when the device boots up.
  * This also requires that hostapd and udhcpd have appropriate config files
  * that define the SSID for the wifi network to be created, for example.
@@ -277,26 +332,53 @@ function scan(): Promise<WirelessNetwork[]> {
  * @param {string} ipaddr - IP address of AP
  * @returns {boolean} Boolean indicating success of the command.
  */
-function startAP(ipaddr: string): boolean {
-  const ssid = getHotspotSsid();
-  if (!Platform.setWirelessMode(true, 'ap', { ssid, ipaddr })) {
+async function startAP(ipaddr: string): Promise<boolean> {
+  let ssid = await getHotspotSsid();
+
+  // Attempt to start the access point
+  let modeSuccess: boolean;
+  let dhcpSuccess: boolean;
+  if (Platform.implemented('setWirelessModeAsync') && 
+    Platform.implemented('setDhcpServerStatusAsync')) {
+    modeSuccess = await Platform.setWirelessModeAsync(true, 'ap', {ssid, ipaddr});
+    dhcpSuccess = await Platform.setDhcpServerStatusAsync(true);
+  } else if (Platform.implemented('getDhcpServerStatus') &&
+    Platform.implemented('setDhcpServerStatus')) {
+    modeSuccess = Platform.setWirelessMode(true, 'ap', {ssid, ipaddr});
+    dhcpSuccess = Platform.setDhcpServerStatus(true);
+  } else {
+    throw new Error('Unable to set wireless mode on this platform');
+  }
+  if (modeSuccess && dhcpSuccess) {
+    return true;
+  } else {
     return false;
   }
-
-  return Platform.setDhcpServerStatus(true);
 }
 
 /**
  * Stop the running access point.
- *
- * @returns {boolean} Boolean indicating success of the command.
  */
-function stopAP(): boolean {
-  if (!Platform.setWirelessMode(false, 'ap')) {
+async function stopAP(): Promise<boolean> {
+  // Attempt to stop the access point
+  let modeSuccess: boolean;
+  let dhcpSuccess: boolean;
+  if (Platform.implemented('setWirelessModeAsync') && 
+    Platform.implemented('setDhcpServerStatusAsync')) {
+    modeSuccess = await Platform.setWirelessModeAsync(false, 'ap');
+    dhcpSuccess = await Platform.setDhcpServerStatusAsync(false);
+  } else if (Platform.implemented('getDhcpServerStatus') &&
+    Platform.implemented('setDhcpServerStatus')) {
+    modeSuccess = Platform.setWirelessMode(false, 'ap')
+    dhcpSuccess = Platform.setDhcpServerStatus(false);
+  } else {
+    throw new Error('Unable to set wireless mode on this platform');
+  }
+  if (modeSuccess && dhcpSuccess) {
+    return true;
+  } else {
     return false;
   }
-
-  return Platform.setDhcpServerStatus(false);
 }
 
 /**
@@ -304,10 +386,20 @@ function stopAP(): boolean {
  *
  * @param {string} ssid - SSID to configure
  * @param {string?} password - PSK to configure
- * @returns {boolean} Boolean indicating success of the command.
+ * @returns {Promise<boolean>} Boolean indicating success of the command.
  */
-function defineNetwork(ssid: string, password?: string): boolean {
-  return Platform.setWirelessMode(true, 'sta', { ssid, key: password });
+async function defineNetwork(ssid: string, password?: string): Promise<boolean> {
+  let success: boolean;
+  if(Platform.implemented('setWirelessModeAsync')) {
+    success = await Platform.setWirelessModeAsync(true, 'sta', { ssid, key: password });
+  } else if(Platform.implemented('setWirelessMode')) {
+    success = Platform.setWirelessMode();
+  } else {
+    console.error('Unable to set wireless mode on this platform');
+    success = false;
+  }
+
+  return success;
 }
 
 /**
@@ -374,17 +466,18 @@ export function isWiFiConfigured(): Promise<boolean> {
           ensureAPStopped();
           return true;
         })
-        .catch((err) => {
+        .catch(async (err) => {
           if (err) {
             console.error('wifi-setup: isWiFiConfigured: Error waiting:', err);
           }
 
           console.log('wifi-setup: isWiFiConfigured: No wifi connection found, starting AP');
 
-          if (!startAP(config.get('wifi.ap.ipaddr'))) {
+          const ipaddr = config.get('wifi.ap.ipaddr') as string;
+          let success = await startAP(ipaddr);
+          if (!success) {
             console.error('wifi-setup: isWiFiConfigured: failed to start AP');
           }
-
           return false;
         });
     });
