@@ -50,18 +50,29 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
     try {
       const ethernetDevices = await NetworkManager.getEthernetDevices();
       const ethernetIp4Config = await NetworkManager.getDeviceIp4Config(ethernetDevices[0]);
-      result.lan = ethernetIp4Config[0].address;
+      if(ethernetIp4Config && ethernetIp4Config.length >= 1 && ethernetIp4Config[0].address) {
+        result.lan = ethernetIp4Config[0].address;
+      } else {
+        console.log('No ethernet IP address found');
+      }
     } catch (error) {
-      console.error(error);
-      console.log('Unable to detect an Ethernet IP address');
+      console.error(`Error getting Ethernet IP address: ${error}`);
     }
     try {
       const wifiDevices = await NetworkManager.getWifiDevices();
       const wifiIp4Config = await NetworkManager.getDeviceIp4Config(wifiDevices[0]);
       const accessPoint = await NetworkManager.getActiveAccessPoint(wifiDevices[0]);
       const ssid = await NetworkManager.getAccessPointSsid(accessPoint);
-      result.wlan.ip = wifiIp4Config[0].address;
-      result.wlan.ssid = ssid;
+      if(wifiIp4Config && wifiIp4Config.length >= 1 && wifiIp4Config[0].address) {
+        result.wlan.ip = wifiIp4Config[0].address;
+      } else {
+        console.log('No Wi-Fi IP address found');
+      }
+      if(accessPoint) {
+        result.wlan.ssid = ssid;
+      } else {
+        console.log('No Wi-Fi SSID found');
+      }
     } catch (error) {
       console.error(error);
       console.log('Unable to detect a Wi-Fi IP address and active SSID');
