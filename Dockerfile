@@ -13,6 +13,7 @@ RUN set -x && \
         ffmpeg \
         git \
         iputils-ping \
+        iw \
         libcap2-bin \
         libdbus-1-dev \
         libffi-dev \
