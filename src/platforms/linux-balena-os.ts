@@ -9,6 +9,8 @@
 import ip from 'ip';
 import { Netmask } from 'netmask';
 import BasePlatform from './base';
+import fs from 'fs';
+import { execFileSync } from 'child_process';
 import NetworkManager, { ConnectionSettings } from './utilities/network-manager';
 import { LanMode, NetworkAddresses, WirelessNetwork } from './types';
 
@@ -295,6 +297,132 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Get a list of all valid wi-fi countries for the system.
+   *
+   * @returns {string[]} List of countries.
+   */
+  getValidWirelessCountries(): string[] {
+    const fname = '/usr/share/zoneinfo/iso3166.tab';
+    if (!fs.existsSync(fname)) {
+      return [];
+    }
+
+    try {
+      const data = fs.readFileSync(fname, 'utf8');
+      const zones = data
+        .split('\n')
+        .filter((l) => !l.startsWith('#') && l.length > 0)
+        .map((l) => l.split('\t')[1])
+        .sort();
+
+      return zones;
+    } catch (e) {
+      console.error('Failed to read zone file:', e);
+    }
+
+    return [];
+  }
+
+  /**
+   * Get the current wireless regulatory domain.
+   *
+   * @returns {string} The full country name (e.g. 'United States', 'United Kingdom'),
+   *   or empty string if unable to determine.
+   */
+  getWirelessCountry(): string {
+    // Get the current country code
+    try {
+      const stdout = execFileSync('iw', ['reg', 'get'], { encoding: 'utf8' });
+      // First try to find per-phy country (e.g. under "phy#0")
+      let countryCode: string | null = null;
+      const phyMatch = stdout.match(/phy#\d+[\s\S]*?country\s+(\w+):/);
+      if (phyMatch && phyMatch[1]) {
+        countryCode = phyMatch[1];
+      } else {
+        // Fall back to global country
+        const globalMatch = stdout.match(/country\s+(\w+):/);
+        if (globalMatch && globalMatch[1]) {
+          countryCode = globalMatch[1];
+        }
+      }
+
+      if (!countryCode) {
+        return '';
+      }
+
+      // Look up the country name from iso3166.tab
+      const fname = '/usr/share/zoneinfo/iso3166.tab';
+      if (!fs.existsSync(fname)) {
+        return '';
+      }
+
+      const data = fs.readFileSync(fname, 'utf8');
+      const lines = data.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('#') || line.length === 0) {
+          continue;
+        }
+        const parts = line.split('\t');
+        if (parts[0] === countryCode && parts[1]) {
+          return parts[1];
+        }
+      }
+    } catch (error) {
+      console.error(`Error getting wireless country: ${error}`);
+    }
+
+    return '';
+  }
+
+  /**
+   * Get a list of all valid timezones for the system.
+   *
+   * @returns {string[]} List of timezones.
+   */
+  getValidTimezones(): string[] {
+    const tzdata = '/usr/share/zoneinfo/zone.tab';
+    if (!fs.existsSync(tzdata)) {
+      return [];
+    }
+
+    try {
+      const data = fs.readFileSync(tzdata, 'utf8');
+      const zones = data
+        .split('\n')
+        .filter((l) => !l.startsWith('#') && l.length > 0)
+        .map((l) => l.split(/\s+/g)[2])
+        .sort();
+
+      return zones;
+    } catch (e) {
+      console.error('Failed to read zone file:', e);
+    }
+
+    return [];
+  }
+
+  /**
+   * Get the current timezone.
+   *
+   * @returns {string} Name of timezone.
+   */
+  getTimezone(): string {
+    const tzdata = '/etc/timezone';
+    if (!fs.existsSync(tzdata)) {
+      return '';
+    }
+
+    try {
+      const data = fs.readFileSync(tzdata, 'utf8');
+      return data.trim();
+    } catch (e) {
+      console.error('Failed to read timezone:', e);
+    }
+
+    return '';
   }
 }
 
