@@ -14,6 +14,11 @@ import { execFileSync } from 'child_process';
 import NetworkManager, { ConnectionSettings } from './utilities/network-manager';
 import { LanMode, NetworkAddresses, WirelessNetwork } from './types';
 
+// Balena supervisor address from environment variable (e.g. http://<supervisor-ip>:48484)
+const BALENA_SUPERVISOR_ADDRESS: string = process.env.BALENA_SUPERVISOR_ADDRESS || '';
+// Balena supervisor API key from environment variable
+const BALENA_SUPERVISOR_API_KEY: string = process.env.BALENA_SUPERVISOR_API_KEY || '';
+
 export class LinuxBalenaOSPlatform extends BasePlatform {
   /**
    * Disconnect NetworkManager.
@@ -423,6 +428,120 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
     }
 
     return '';
+  }
+
+  /**
+   * Get the system's hostname.
+   *
+   * @returns {string} The hostname or an empty string if no hostname can be detected.
+   */
+  async getHostnameAsync(): Promise<string> {
+    if (
+      !BALENA_SUPERVISOR_ADDRESS ||
+      !BALENA_SUPERVISOR_API_KEY ||
+      BALENA_SUPERVISOR_ADDRESS === '' ||
+      BALENA_SUPERVISOR_API_KEY === ''
+    ) {
+      console.error('Unable to get system hostname from supervisor API');
+      return '';
+    }
+    try {
+      const options = {
+        headers: {
+          Accept: 'application/json',
+        },
+      };
+      const response = await fetch(
+        `${BALENA_SUPERVISOR_ADDRESS}/v1/device/host-config?apikey=${BALENA_SUPERVISOR_API_KEY}`,
+        options
+      );
+      const config = await response.json();
+      if (config.network && config.network.hostname) {
+        return config.network.hostname;
+      } else {
+        return '';
+      }
+    } catch (error) {
+      console.error('Error whilst attempting to retrieve system hostname from supervisor API');
+      // Fall back to getting the hostname from /etc/hostname
+      //return fs.readFileSync('/etc/hostname', 'utf8').trim();
+      return '';
+    }
+  }
+
+  /**
+   * Set the system's hostname.
+   *
+   * @param {string} hostname - The hostname to set
+   * @returns {boolean} Boolean indicating success of the command.
+   */
+  async setHostnameAsync(hostname: string): Promise<boolean> {
+    if (
+      !BALENA_SUPERVISOR_ADDRESS ||
+      !BALENA_SUPERVISOR_API_KEY ||
+      BALENA_SUPERVISOR_ADDRESS === '' ||
+      BALENA_SUPERVISOR_API_KEY === ''
+    ) {
+      console.error('Unable to get system hostname from supervisor API');
+      return false;
+    }
+    try {
+      const body = {
+        network: {
+          hostname: hostname,
+        },
+      };
+      const options = {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      };
+
+      const response = await fetch(
+        `${BALENA_SUPERVISOR_ADDRESS}/v1/device/host-config?apikey=${BALENA_SUPERVISOR_API_KEY}`,
+        options
+      );
+      if (response.ok) {
+        return true;
+      } else {
+        console.error('HTTP error whilst attempting to set system hostname from supervisor API');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error whilst attempting to set system hostname from supervisor API');
+      return false;
+    }
+  }
+
+  /**
+   * Get mDNS server status.
+   *
+   * @returns {boolean} Boolean indicating whether or not mDNS is enabled.
+   *
+   * Currently we just always return true on balenaOS because mDNS is enabled by
+   * default and there is no easy way to read its state or turn it on and off.
+   */
+  getMdnsServerStatus(): boolean {
+    return true;
+  }
+
+  /**
+   * Set mDNS server status.
+   *
+   * @param {boolean} enabled - Whether or not to enable the mDNS server
+   * @returns {boolean} Boolean indicating success of the command.
+   *
+   * On balenaOS mDNS can't currently be disabled.
+   */
+  setMdnsServerStatus(enabled: boolean): boolean {
+    if (enabled) {
+      return true;
+    }
+
+    // can't disable
+    return false;
   }
 }
 
