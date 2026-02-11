@@ -543,6 +543,16 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
     // can't disable
     return false;
   }
+
+  /**
+   * Get SSH server status.
+   *
+   * @returns {boolean} Boolean indicating whether or not SSH is enabled.
+   */
+  getSshServerStatus(): boolean {
+    // SSH can not be disabled on balenaOS
+    return true;
+  }
 }
 
 export default new LinuxBalenaOSPlatform();
