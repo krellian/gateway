@@ -1438,6 +1438,7 @@ const SettingsScreen = {
   },
 
   fetchUpdateInfo: function () {
+    const upToDateContainerElt = document.getElementById('up-to-date-container');
     const upToDateElt = document.getElementById('update-settings-up-to-date');
     const updateNow = document.getElementById('update-now');
     const versionElt = document.getElementById('update-settings-version');
@@ -1468,7 +1469,8 @@ const SettingsScreen = {
       }
 
       this.elements.update.enableSelfUpdatesCheckbox.checked = support.enabled;
-      this.elements.update.enableSelfUpdatesCheckbox.disabled = !support.available;
+      this.elements.update.enableSelfUpdatesCheckbox.disabled =
+        !support.available || !support.configurable;
 
       if (support.available) {
         statusElt.textContent = statusText;
@@ -1476,7 +1478,9 @@ const SettingsScreen = {
         statusElt.classList.add('hidden');
       }
 
-      if (support.available) {
+      if (support.available && !support.triggerable) {
+        upToDateContainerElt.classList.add('hidden');
+      } else if (support.available) {
         upToDateElt.textContent = fluent.getMessage('checking-for-updates');
         updateNow.classList.add('hidden');
 
