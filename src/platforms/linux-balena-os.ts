@@ -12,7 +12,7 @@ import BasePlatform from './base';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
 import NetworkManager, { ConnectionSettings } from './utilities/network-manager';
-import { LanMode, NetworkAddresses, WirelessNetwork } from './types';
+import { LanMode, NetworkAddresses, WirelessNetwork, SelfUpdateStatus } from './types';
 
 // Balena supervisor address from environment variable (e.g. http://<supervisor-ip>:48484)
 const BALENA_SUPERVISOR_ADDRESS: string = process.env.BALENA_SUPERVISOR_ADDRESS || '';
@@ -552,6 +552,27 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
   getSshServerStatus(): boolean {
     // SSH can not be disabled on balenaOS
     return true;
+  }
+
+  /**
+   * Determine whether or not the gateway can auto-update itself.
+   *
+   * @returns {Object} {
+   *                      available: <bool>,
+   *                      enabled: <bool>,
+   *                      configurable: <bool>,
+   *                      triggerable: <bool>
+   *                   }
+   */
+  getSelfUpdateStatus(): SelfUpdateStatus {
+    // Automatic updates are supported on balenaOS but can not be disabled
+    // or manually triggered from the UI
+    return {
+      available: true,
+      enabled: true,
+      configurable: false,
+      triggerable: false,
+    };
   }
 }
 
