@@ -742,6 +742,43 @@ class NetworkManager {
       );
     });
   }
+
+  /**
+   * Get the NTP synchronisation status.
+   *
+   * Checks whether the system clock has been synchronised with an NTP server.
+   *
+   * Note: This is not directly related to NetworkManager, but it was easier
+   * to add it here because there can only be one connection to the system bus
+   * open at any one time.
+   *
+   * @returns {Promise<boolean>} Boolean true if synchronised, otherwise false.
+   */
+  getNTPSynchronized(): Promise<boolean> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.timedate1',
+        '/org/freedesktop/timedate1',
+        'org.freedesktop.timedate1',
+        function (error, iface) {
+          if (error) {
+            console.error(error);
+            reject();
+            return;
+          }
+          iface.getProperty('NTPSynchronized', function (error, value) {
+            if (error) {
+              console.error(error);
+              reject();
+              return;
+            }
+            resolve(value);
+          });
+        }
+      );
+    });
+  }
 }
 
 export default new NetworkManager();
