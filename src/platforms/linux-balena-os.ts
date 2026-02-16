@@ -574,6 +574,23 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
       triggerable: false,
     };
   }
+
+  /**
+   * Get the NTP synchronization status.
+   *
+   * @returns {Promise<boolean>} Promise that resolves with a boolean indicating
+   *   whether or not the time has been synchronized.
+   */
+  async getNtpStatusAsync(): Promise<boolean> {
+    let synchronized = false;
+    try {
+      synchronized = await NetworkManager.getNTPSynchronized();
+      return synchronized;
+    } catch (error) {
+      console.error('Error retrieving NTP synchronised status: ' + error);
+      return false;
+    }
+  }
 }
 
 export default new LinuxBalenaOSPlatform();

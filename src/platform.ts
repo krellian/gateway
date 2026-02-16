@@ -276,6 +276,7 @@ export const getNtpStatus = (): boolean => {
 
   return wrapPlatform<boolean>(platform, 'getNtpStatus')();
 };
+export const getNtpStatusAsync = wrapPlatform<Promise<boolean>>(platform, 'getNtpStatusAsync');
 export const stop = wrapPlatform<string>(platform, 'stop');
 
 export const implemented = (fn: string): boolean => {

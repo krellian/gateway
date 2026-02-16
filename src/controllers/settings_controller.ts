@@ -368,16 +368,20 @@ function build(): express.Router {
     }
   });
 
-  controller.get('/system/ntp', (_request, response) => {
-    const statusImplemented = Platform.implemented('getNtpStatus');
-
+  controller.get('/system/ntp', async (_request, response) => {
+    let implemented = false;
     let synchronized = false;
-    if (statusImplemented) {
+
+    if (Platform.implemented('getNtpStatusAsync')) {
+      implemented = true;
+      synchronized = await Platform.getNtpStatusAsync();
+    } else if (Platform.implemented('getNtpStatus')) {
+      implemented = true;
       synchronized = Platform.getNtpStatus();
     }
 
     response.json({
-      statusImplemented,
+      implemented,
       synchronized,
     });
   });
