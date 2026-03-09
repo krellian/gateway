@@ -24,6 +24,9 @@ services:
     labels:
       io.balena.features.dbus: '1'
       io.balena.features.supervisor-api: '1'
+    ## Add network admin capability for dnsmasq to use
+    cap_add:
+      - NET_ADMIN
     # Provide access to first USB device
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
