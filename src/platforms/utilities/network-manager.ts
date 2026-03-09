@@ -15,6 +15,7 @@ export interface ConnectionSettings {
   };
   '802-11-wireless'?: {
     ssid: Array<number>;
+    mode?: string;
   };
   '802-11-wireless-security'?: {
     'key-mgmt'?: string;
@@ -23,7 +24,7 @@ export interface ConnectionSettings {
 }
 
 export interface AddressData {
-  address: string;
+  address?: string;
   prefix: number;
 }
 
@@ -120,6 +121,70 @@ class NetworkManager {
   }
 
   /**
+   * Get the current state of a device.
+   *
+   * @param {string} path Object path for device.
+   * @returns {Promise<number>} The current state (100 means activated)
+   * Full list of states at:
+   * https://networkmanager.dev/docs/api/latest/nm-dbus-types.html#NMDeviceState
+   */
+  getDeviceState(path: string): Promise<number> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        path,
+        'org.freedesktop.NetworkManager.Device',
+        (error, iface) => {
+          if (error) {
+            console.error(error);
+            reject();
+          }
+          iface.getProperty('State', (error, state: any) => {
+            if (error) {
+              console.error(error);
+              reject();
+            }
+            resolve(state);
+          });
+        }
+      );
+    });
+  }
+
+  /**
+   * Get the kernel interface name for a given network device.
+   *
+   * @param {string} path Object path for device.
+   * @returns {Promise<string>} Resolves with the interface name (e.g. 'wlan0', 'wlo1').
+   */
+  getDeviceInterface(path: string): Promise<string> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        path,
+        'org.freedesktop.NetworkManager.Device',
+        function (error, iface) {
+          if (error) {
+            console.error(error);
+            reject();
+            return;
+          }
+          iface.getProperty('Interface', function (error, value) {
+            if (error) {
+              console.error(error);
+              reject();
+              return;
+            }
+            resolve(value);
+          });
+        }
+      );
+    });
+  }
+
+  /**
    * Get a list of Ethernet network adapters from the system network manager.
    *
    * @returns {Promise<string[]>} A promise which resolves with an array
@@ -164,7 +229,8 @@ class NetworkManager {
    *
    * @param {string} path Object path for device.
    * @returns {Promise<string>} Resolves with object path of the active
-   *  connection object associated with this device.
+   *  connection object associated with this device, or empty string if no
+   *  active connection exists.
    */
   getDeviceConnection(path: string): Promise<string> {
     this.start();
@@ -175,14 +241,22 @@ class NetworkManager {
         'org.freedesktop.NetworkManager.Device',
         (error, iface) => {
           if (error) {
-            console.error(error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`Error getting Device interface: ${errorMsg}`);
             reject();
             return;
           }
           iface.getProperty('ActiveConnection', (error, activeConnectionPath) => {
             if (error) {
-              console.error(error);
-              reject();
+              // No active connection is a valid state, not necessarily an error
+              console.log('Device has no active connection');
+              resolve('');
+              return;
+            }
+            // Handle case where activeConnectionPath is invalid or not a real path
+            if (!activeConnectionPath || activeConnectionPath === '/') {
+              console.log('Device has no active connection (invalid path)');
+              resolve('');
               return;
             }
             this.systemBus!.getInterface(
@@ -191,14 +265,16 @@ class NetworkManager {
               'org.freedesktop.NetworkManager.Connection.Active',
               (error, iface) => {
                 if (error) {
-                  console.error(error);
-                  reject();
+                  const errorMsg = error instanceof Error ? error.message : String(error);
+                  console.error(`Error getting ActiveConnection interface: ${errorMsg}`);
+                  resolve('');
                   return;
                 }
                 iface.getProperty('Connection', function (error, value) {
                   if (error) {
-                    console.error(error);
-                    reject();
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    console.error(`Error getting Connection property: ${errorMsg}`);
+                    resolve('');
                     return;
                   }
                   resolve(value);
@@ -271,6 +347,38 @@ class NetworkManager {
             if (error) {
               console.error(error);
               reject();
+              return;
+            }
+            resolve(true);
+          });
+        }
+      );
+    });
+  }
+
+  /**
+   * Add and activate a new network connection.
+   *
+   * @param {ConnectionSettings} settings The connection settings to apply.
+   * @param {string} device The DBus object path of the device to apply settings to.
+   * @returns {Promise<boolean>} A Promise which resolves with true on success
+   *  or rejects on failure.
+   */
+  addAndActivateConnection(settings: ConnectionSettings, device: string): Promise<boolean> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        '/org/freedesktop/NetworkManager',
+        'org.freedesktop.NetworkManager',
+        (error, iface) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          iface.AddAndActivateConnection(settings, device, '/', function (error: Error) {
+            if (error) {
+              reject(error);
               return;
             }
             resolve(true);
@@ -586,6 +694,177 @@ class NetworkManager {
   }
 
   /**
+   * Get the active connection object path for a device.
+   *
+   * Unlike getDeviceConnection which returns the connection settings path,
+   * this returns the active connection path needed for DeactivateConnection.
+   *
+   * @param {string} path Object path for the device.
+   * @returns {Promise<string>} The active connection object path, or empty string if none.
+   */
+  getDeviceActiveConnectionPath(path: string): Promise<string> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        path,
+        'org.freedesktop.NetworkManager.Device',
+        (error, iface) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          iface.getProperty('ActiveConnection', (error, activeConnectionPath) => {
+            if (error || !activeConnectionPath || activeConnectionPath === '/') {
+              resolve('');
+              return;
+            }
+            resolve(activeConnectionPath);
+          });
+        }
+      );
+    });
+  }
+
+  /**
+   * Deactivate an active connection.
+   *
+   * This tears down the specified connection without disabling the device,
+   * leaving it free to establish a new connection.
+   *
+   * @param {string} activeConnectionPath The DBus object path of the active connection.
+   * @returns {Promise<void>} Resolves on success.
+   */
+  deactivateConnection(activeConnectionPath: string): Promise<void> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        '/org/freedesktop/NetworkManager',
+        'org.freedesktop.NetworkManager',
+        (error, iface) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          iface.DeactivateConnection(activeConnectionPath, function (error: Error) {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        }
+      );
+    });
+  }
+
+  /**
+   * Request the wireless device to scan for access points.
+   *
+   * @param {string} path The DBUS object path of a wireless device.
+   * @returns {Promise<void>} Resolves when the scan request has been submitted.
+   */
+  requestScan(path: string): Promise<void> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        path,
+        'org.freedesktop.NetworkManager.Device.Wireless',
+        function (error, iface) {
+          if (error) {
+            console.error(`Error getting wireless device interface for scan: ${error}`);
+            reject(error);
+            return;
+          }
+          iface.RequestScan({}, function (error: Error) {
+            if (error) {
+              console.error(`Error requesting Wi-Fi scan: ${error}`);
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        }
+      );
+    });
+  }
+
+  /**
+   * Request a Wi-Fi scan and wait for it to complete.
+   *
+   * Listens for the PropertiesChanged signal on the
+   * org.freedesktop.DBus.Properties interface to detect when the LastScan
+   * property on org.freedesktop.NetworkManager.Device.Wireless changes,
+   * with a fallback timeout.
+   *
+   * @param {string} path The DBUS object path of a wireless device.
+   * @param {number} timeoutMs Maximum time to wait in milliseconds (default 10000).
+   * @returns {Promise<void>} Resolves when the scan completes or the timeout is reached.
+   */
+  waitForScanComplete(path: string, timeoutMs = 10000): Promise<void> {
+    this.start();
+    return new Promise((resolve) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        path,
+        'org.freedesktop.DBus.Properties',
+        (error, propsIface) => {
+          if (error) {
+            // Can't listen for signals; fall back to fixed timeout after scan
+            console.log('Could not get Properties interface, using fallback timeout on Wi-Fi scan');
+            this.requestScan(path)
+              .then(() => new Promise<void>((r) => setTimeout(r, timeoutMs)))
+              .then(resolve, resolve);
+            return;
+          }
+
+          let settled = false;
+          const done = (): void => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            clearTimeout(timer);
+            propsIface.removeListener('PropertiesChanged', onPropertiesChanged);
+            resolve();
+          };
+
+          const onPropertiesChanged = (
+            interfaceName: string,
+            changedProperties: Record<string, unknown>
+          ): void => {
+            if (
+              interfaceName === 'org.freedesktop.NetworkManager.Device.Wireless' &&
+              changedProperties &&
+              'LastScan' in changedProperties
+            ) {
+              console.log('Wi-Fi scan completed.');
+              done();
+            }
+          };
+
+          propsIface.on('PropertiesChanged', onPropertiesChanged);
+
+          // Fallback timeout in case the signal is never emitted
+          const timer = setTimeout(() => {
+            console.log('Timed out waiting for Wi-Fi scan to complete, using available results');
+            done();
+          }, timeoutMs);
+
+          // Request the scan after registering the listener
+          this.requestScan(path).catch(() => {
+            // RequestScan may fail (e.g. in AP mode); let the timeout or
+            // a previously cached signal resolve.
+            done();
+          });
+        }
+      );
+    });
+  }
+
+  /**
    * Get a list of access points for the wireless device at the given path.
    *
    * @param {String} path The DBUS object path of a wireless device.
@@ -695,6 +974,7 @@ class NetworkManager {
 
           // TODO: Should we re-use an existing connection rather than add a new one
           // if one already exists?
+          // TODO: Call addAndActivateConnection method now instead?
           iface.AddAndActivateConnection(
             connectionInfo,
             wifiDevice,
@@ -744,6 +1024,40 @@ class NetworkManager {
   }
 
   /**
+   * Get the the current MAC address of a device by its object path.
+   *
+   * Note the MAC address may be randomised and may not be the permanent hardware address.
+   *
+   * @param {String} path DBUS Object path for a device.
+   * @returns {Promise<string>} Promise resolves with the current MAC address of the device.
+   */
+  getDeviceMacAddress(path: string): Promise<string> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        path,
+        'org.freedesktop.NetworkManager.Device',
+        (error, iface) => {
+          if (error) {
+            console.error(error);
+            reject();
+            return;
+          }
+          iface.getProperty('HwAddress', (error, macAddress) => {
+            if (error) {
+              console.log('Unable to retrieve MAC address for device');
+              reject();
+              return;
+            }
+            resolve(macAddress);
+          });
+        }
+      );
+    });
+  }
+
+  /**
    * Get the NTP synchronisation status.
    *
    * Checks whether the system clock has been synchronised with an NTP server.
@@ -774,6 +1088,36 @@ class NetworkManager {
               return;
             }
             resolve(value);
+          });
+        }
+      );
+    });
+  }
+  /**
+   * List all saved connection profiles.
+   *
+   * @returns {Promise<string[]>} An array of DBus object paths for connection profiles.
+   */
+  listConnections(): Promise<string[]> {
+    this.start();
+    return new Promise((resolve, reject) => {
+      this.systemBus!.getInterface(
+        'org.freedesktop.NetworkManager',
+        '/org/freedesktop/NetworkManager/Settings',
+        'org.freedesktop.NetworkManager.Settings',
+        function (error, iface) {
+          if (error) {
+            console.error(`Error accessing NetworkManager Settings interface: ${error}`);
+            reject();
+            return;
+          }
+          iface.ListConnections(function (error: Error, result: string[]) {
+            if (error) {
+              console.error(`Error listing connections: ${error}`);
+              reject();
+              return;
+            }
+            resolve(result);
           });
         }
       );

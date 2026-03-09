@@ -3,11 +3,24 @@ import config from 'config';
 import * as Constants from './constants';
 import express from 'express';
 import expressHandlebars from 'express-handlebars';
-import os from 'os';
 import * as Platform from './platform';
 import * as Settings from './models/settings';
 import sleep from './sleep';
-import { WirelessNetwork } from './platforms/types';
+import { NetworkAddresses, WirelessMode, WirelessNetwork } from './platforms/types';
+
+// Cache of scan results gathered before starting the AP, since most
+// wireless drivers cannot scan while operating as an access point.
+let cachedScanResults: WirelessNetwork[] | null = null;
+
+/**
+ * Wi-Fi Setup is a mini Express web application that creates a Wi-Fi hotspot if no
+ * active network connection is detected so that a client can connect to the hotspot to
+ * connect to the gateway and configure the network.
+ *
+ * Note: This code could be simplified greatly if the Raspbian Buster port was
+ * removed or updated to use Raspberry Pi OS Bookworm with NetworkManager and
+ * all platform methods were always async.
+ */
 
 const hbs = expressHandlebars.create({
   helpers: {
@@ -78,6 +91,9 @@ function handleCaptive(
     case '/fwlink/': // Windows
     case '/redirect': // Windows
     case '/success.txt': // Firefox
+    case '/canonical.html': // Ubuntu/GNOME
+    case '/check_network_status.txt': // GNOME NetworkManager
+    case '/': // Ubuntu connectivity-check.ubuntu.com
       // Redirect to the wifi setup page
       response.redirect(302, `http://${config.get('wifi.ap.ipaddr')}/wifi-setup`);
       break;
@@ -92,8 +108,16 @@ function handleCaptive(
  * Handle requests to the root URL. We display a different page depending on
  * what stage of setup we're at.
  */
-function handleRoot(_request: express.Request, response: express.Response): void {
-  const status = Platform.getWirelessMode();
+async function handleRoot(_request: express.Request, response: express.Response): Promise<void> {
+  // Get wireless mode
+  let status: WirelessMode;
+  if (Platform.implemented('getWirelessModeAsync')) {
+    status = await Platform.getWirelessModeAsync();
+  } else if (Platform.implemented('getWirelessMode')) {
+    status = Platform.getWirelessMode();
+  } else {
+    throw new Error('Unable to get wireless mode on this platform');
+  }
 
   if (!(status.enabled && status.mode === 'sta')) {
     // If we don't have a wifi connection yet, display the wifi setup page
@@ -139,9 +163,20 @@ function handleWiFiSetup(_request: express.Request, response: express.Response):
 /**
  * Handle requests to /connecting.
  */
-function handleConnecting(request: express.Request, response: express.Response): void {
-  // We assume getHostname is implemented, since this is only used on Raspberry Pi right now.
-  const domain = Platform.getHostname();
+async function handleConnecting(
+  request: express.Request,
+  response: express.Response
+): Promise<void> {
+  // Get host name
+  let domain: string;
+  if (Platform.implemented('getHostnameAsync')) {
+    domain = await Platform.getHostnameAsync();
+  } else if (Platform.implemented('getHostname')) {
+    domain = Platform.getHostname();
+  } else {
+    throw new Error('Unable to get hostname on this platform');
+  }
+
   const skip = request.body.skip === '1';
 
   if (skip) {
@@ -156,7 +191,12 @@ function handleConnecting(request: express.Request, response: express.Response):
           skip: `${skip}`,
           domain,
         });
-        stopAP();
+        return stopAP();
+      })
+      .then((success) => {
+        if (!success) {
+          console.error('Failed to stop AP');
+        }
         WiFiSetupApp.onConnection!();
       });
     return;
@@ -184,18 +224,28 @@ function handleConnecting(request: express.Request, response: express.Response):
   // but a 5 second wait seems to work better.
   sleep(2000)
     .then(() => {
-      stopAP();
+      return stopAP();
+    })
+    .then((success) => {
+      if (!success) {
+        console.error('Failed to stop AP');
+        throw new Error('Failed to stop AP');
+      }
       return sleep(5000);
     })
     .then(() => {
-      if (!defineNetwork(ssid, password)) {
+      return defineNetwork(ssid, password);
+    })
+    .then(async (success) => {
+      if (!success) {
         console.error('wifi-setup: handleConnecting: failed to define network');
         throw new Error('failed to define network');
       } else {
-        return waitForWiFi(20, 3000).then(() => {
-          WiFiSetupApp.onConnection!();
-        });
+        return waitForConnection(20, 3000);
       }
+    })
+    .then(() => {
+      WiFiSetupApp.onConnection!();
     })
     .catch((error) => {
       if (error) {
@@ -209,9 +259,19 @@ function handleConnecting(request: express.Request, response: express.Response):
  *
  * @returns {string} SSID
  */
-function getHotspotSsid(): string {
+async function getHotspotSsid(): Promise<string> {
   const base: string = config.get('wifi.ap.ssid_base');
-  const mac = Platform.getMacAddress('wlan0');
+
+  // Get MAC address
+  let mac: string | null;
+  if (Platform.implemented('getMacAddressAsync')) {
+    mac = await Platform.getMacAddressAsync('wlan0');
+  } else if (Platform.implemented('getWirelessMode')) {
+    mac = Platform.getMacAddress('wlan0');
+  } else {
+    throw new Error('Unable to get MAC address on this platform');
+  }
+
   if (!mac) {
     return base;
   }
@@ -236,15 +296,32 @@ function getHotspotSsid(): string {
  *                              ]
  */
 function scan(): Promise<WirelessNetwork[]> {
+  // If we have cached results from a pre-AP scan, use those since
+  // most wireless drivers cannot scan while operating as an access point.
+  // Keep the cache so that subsequent clients also see the results.
+  if (cachedScanResults && cachedScanResults.length > 0) {
+    return Promise.resolve(cachedScanResults);
+  }
+
   const maxAttempts = 5;
 
   return new Promise(function (resolve) {
     let attempts = 0;
 
-    function tryScan(): void {
+    async function tryScan(): Promise<void> {
       attempts++;
 
-      const results = Platform.scanWirelessNetworks();
+      let results: WirelessNetwork[];
+      if (Platform.implemented('scanWirelessNetworksAsync')) {
+        results = await Platform.scanWirelessNetworksAsync();
+      } else if (Platform.implemented('scanWirelessNetworks')) {
+        results = Platform.scanWirelessNetworks();
+      } else {
+        console.error('Unable to scan for wireless networks on this platform');
+        results = [];
+        resolve(results);
+        return;
+      }
       if (results.length > 0) {
         resolve(results);
       } else {
@@ -267,7 +344,8 @@ function scan(): Promise<WirelessNetwork[]> {
 /**
  * Enable an access point that users can connect to to configure the device.
  *
- * This requires that hostapd and udhcpd are installed on the system but not
+ * On Raspbian
+ * this requires that hostapd and udhcpd are installed on the system but not
  * enabled, so that they do not automatically run when the device boots up.
  * This also requires that hostapd and udhcpd have appropriate config files
  * that define the SSID for the wifi network to be created, for example.
@@ -277,26 +355,64 @@ function scan(): Promise<WirelessNetwork[]> {
  * @param {string} ipaddr - IP address of AP
  * @returns {boolean} Boolean indicating success of the command.
  */
-function startAP(ipaddr: string): boolean {
-  const ssid = getHotspotSsid();
-  if (!Platform.setWirelessMode(true, 'ap', { ssid, ipaddr })) {
+async function startAP(ipaddr: string): Promise<boolean> {
+  let ssid = await getHotspotSsid();
+
+  // Attempt to start the access point
+  let modeSuccess: boolean;
+  let dhcpSuccess: boolean;
+  if (
+    Platform.implemented('setWirelessModeAsync') &&
+    Platform.implemented('setDhcpServerStatusAsync')
+  ) {
+    modeSuccess = await Platform.setWirelessModeAsync(true, 'ap', { ssid, ipaddr });
+    dhcpSuccess = await Platform.setDhcpServerStatusAsync(true);
+  } else if (
+    Platform.implemented('getDhcpServerStatus') &&
+    Platform.implemented('setDhcpServerStatus')
+  ) {
+    modeSuccess = Platform.setWirelessMode(true, 'ap', { ssid, ipaddr });
+    dhcpSuccess = Platform.setDhcpServerStatus(true);
+  } else {
+    throw new Error('Unable to set wireless mode on this platform');
+  }
+  if (modeSuccess && dhcpSuccess) {
+    return true;
+  } else {
     return false;
   }
-
-  return Platform.setDhcpServerStatus(true);
 }
 
 /**
  * Stop the running access point.
- *
- * @returns {boolean} Boolean indicating success of the command.
  */
-function stopAP(): boolean {
-  if (!Platform.setWirelessMode(false, 'ap')) {
+async function stopAP(): Promise<boolean> {
+  // Clear cached scan results since AP mode is ending
+  cachedScanResults = null;
+
+  // Attempt to stop the access point
+  let modeSuccess: boolean;
+  let dhcpSuccess: boolean;
+  if (
+    Platform.implemented('setWirelessModeAsync') &&
+    Platform.implemented('setDhcpServerStatusAsync')
+  ) {
+    modeSuccess = await Platform.setWirelessModeAsync(false, 'ap');
+    dhcpSuccess = await Platform.setDhcpServerStatusAsync(false);
+  } else if (
+    Platform.implemented('getDhcpServerStatus') &&
+    Platform.implemented('setDhcpServerStatus')
+  ) {
+    modeSuccess = Platform.setWirelessMode(false, 'ap');
+    dhcpSuccess = Platform.setDhcpServerStatus(false);
+  } else {
+    throw new Error('Unable to set wireless mode on this platform');
+  }
+  if (modeSuccess && dhcpSuccess) {
+    return true;
+  } else {
     return false;
   }
-
-  return Platform.setDhcpServerStatus(false);
 }
 
 /**
@@ -304,10 +420,20 @@ function stopAP(): boolean {
  *
  * @param {string} ssid - SSID to configure
  * @param {string?} password - PSK to configure
- * @returns {boolean} Boolean indicating success of the command.
+ * @returns {Promise<boolean>} Boolean indicating success of the command.
  */
-function defineNetwork(ssid: string, password?: string): boolean {
-  return Platform.setWirelessMode(true, 'sta', { ssid, key: password });
+async function defineNetwork(ssid: string, password?: string): Promise<boolean> {
+  let success: boolean;
+  if (Platform.implemented('setWirelessModeAsync')) {
+    success = await Platform.setWirelessModeAsync(true, 'sta', { ssid, key: password });
+  } else if (Platform.implemented('setWirelessMode')) {
+    success = Platform.setWirelessMode();
+  } else {
+    console.error('Unable to set wireless mode on this platform');
+    success = false;
+  }
+
+  return success;
 }
 
 /**
@@ -317,26 +443,53 @@ function defineNetwork(ssid: string, password?: string): boolean {
  *                    or not we have a connection.
  */
 export function isWiFiConfigured(): Promise<boolean> {
-  const ensureAPStopped = (): void => {
+  const ensureAPStopped = async (): Promise<void> => {
+    // Get DHCP server status
+    let dhcpServerStatus: boolean;
+    if (Platform.implemented('getDhcpServerStatusAsync')) {
+      dhcpServerStatus = await Platform.getDhcpServerStatusAsync();
+    } else if (Platform.implemented('getDhcpServerStatus')) {
+      dhcpServerStatus = Platform.getDhcpServerStatus();
+    } else {
+      throw new Error('Unable to get DHCP server status on this platform');
+    }
+
+    // Get wireless mode
+    let wirelessMode: string;
+    if (Platform.implemented('getWirelessModeAsync')) {
+      wirelessMode = (await Platform.getWirelessModeAsync()).mode;
+    } else if (Platform.implemented('getWirelessMode')) {
+      wirelessMode = Platform.getWirelessMode().mode;
+    } else {
+      throw new Error('Unable to get wireless mode on this platform');
+    }
+
     // If the host seems to be in AP mode (e.g. from a previous run), stop it
-    if (Platform.getDhcpServerStatus() || Platform.getWirelessMode().mode === 'ap') {
+    if (dhcpServerStatus == true || wirelessMode === 'ap') {
       stopAP();
     }
   };
 
   return Settings.getSetting('wifiskip')
     .catch(() => false)
-    .then((skipped) => {
+    .then(async (skipped) => {
       if (skipped) {
         ensureAPStopped();
         return Promise.resolve(true);
       }
 
-      // If wifi wasn't skipped, but there is an ethernet connection, just move on
-      const addresses = Platform.getNetworkAddresses();
-      if (addresses.lan) {
+      // If Wi-Fi wasn't skipped but there is already a network connection then continue
+      let addresses: NetworkAddresses;
+      if (Platform.implemented('getNetworkAddressesAsync')) {
+        addresses = await Platform.getNetworkAddressesAsync();
+      } else if (Platform.implemented('getNetworkAddresses')) {
+        addresses = Platform.getNetworkAddresses();
+      } else {
+        throw new Error('Unable to retrieve network addresses on this platform');
+      }
+      if (addresses.lan || (addresses.wlan && addresses.wlan.ip)) {
         ensureAPStopped();
-        return Promise.resolve(true);
+        return true;
       }
 
       // Wait until we have a working wifi connection. Retry every 3 seconds up
@@ -346,14 +499,33 @@ export function isWiFiConfigured(): Promise<boolean> {
           ensureAPStopped();
           return true;
         })
-        .catch((err) => {
+        .catch(async (err) => {
           if (err) {
             console.error('wifi-setup: isWiFiConfigured: Error waiting:', err);
           }
 
           console.log('wifi-setup: isWiFiConfigured: No wifi connection found, starting AP');
 
-          if (!startAP(config.get('wifi.ap.ipaddr'))) {
+          // Scan for networks before starting the AP, since most wireless
+          // drivers cannot scan while operating as an access point.
+          try {
+            if (Platform.implemented('scanWirelessNetworksAsync')) {
+              cachedScanResults = await Platform.scanWirelessNetworksAsync();
+            } else if (Platform.implemented('scanWirelessNetworks')) {
+              cachedScanResults = Platform.scanWirelessNetworks();
+            }
+            console.log(
+              `wifi-setup: isWiFiConfigured: Pre-AP scan found ${
+                cachedScanResults?.length ?? 0
+              } networks`
+            );
+          } catch (e) {
+            console.error('wifi-setup: isWiFiConfigured: Pre-AP scan failed:', e);
+          }
+
+          const ipaddr = config.get('wifi.ap.ipaddr') as string;
+          let success = await startAP(ipaddr);
+          if (!success) {
             console.error('wifi-setup: isWiFiConfigured: failed to start AP');
           }
 
@@ -372,12 +544,23 @@ export function isWiFiConfigured(): Promise<boolean> {
  *                    promise is rejected.
  */
 function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
-  return new Promise(function (resolve, reject) {
+  return new Promise(async function (resolve, reject) {
     let attempts = 0;
 
     // first, see if any networks are already configured
-    const status = Platform.getWirelessMode();
-    if (
+    let status: WirelessMode;
+    if (Platform.implemented('getWirelessModeAsync')) {
+      status = await Platform.getWirelessModeAsync();
+    } else if (Platform.implemented('getWirelessMode')) {
+      status = Platform.getWirelessMode();
+    } else {
+      throw new Error('Unable to retrieve wireless mode on this platform');
+    }
+    if (status.enabled && status.mode === 'sta') {
+      // WiFi is already connected, just verify we have an address
+      console.log('wifi-setup: waitForWiFi: already connected');
+      check();
+    } else if (
       status.options &&
       status.options.networks &&
       (<string[]>status.options.networks).length > 0
@@ -392,9 +575,16 @@ function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
       reject();
     }
 
-    function check(): void {
+    async function check(): Promise<void> {
       attempts++;
-      const status = Platform.getWirelessMode();
+      let status: WirelessMode;
+      if (Platform.implemented('getWirelessModeAsync')) {
+        status = await Platform.getWirelessModeAsync();
+      } else if (Platform.implemented('getNetworkAddresses')) {
+        status = Platform.getWirelessMode();
+      } else {
+        throw new Error('Unable to retrieve wireless mode on this platform');
+      }
       if (status.enabled && status.mode === 'sta') {
         console.log('wifi-setup: waitForWifi: connection found');
         checkForAddress();
@@ -404,18 +594,22 @@ function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
       }
     }
 
-    function checkForAddress(): void {
-      const ifaces = os.networkInterfaces();
-
-      if (ifaces.hasOwnProperty('wlan0')) {
-        for (const addr of ifaces.wlan0!) {
-          if (addr.family !== 'IPv4' || addr.internal) {
-            continue;
-          }
-
+    async function checkForAddress(): Promise<void> {
+      try {
+        let addresses: NetworkAddresses;
+        if (Platform.implemented('getNetworkAddressesAsync')) {
+          addresses = await Platform.getNetworkAddressesAsync();
+        } else if (Platform.implemented('getNetworkAddresses')) {
+          addresses = Platform.getNetworkAddresses();
+        } else {
+          throw new Error('Unable to retrieve network addresses on this platform');
+        }
+        if (addresses.wlan && addresses.wlan.ip) {
           resolve();
           return;
         }
+      } catch (e) {
+        console.log('wifi-setup: waitForWiFi: error checking address:', e);
       }
 
       retryOrGiveUp();
@@ -429,5 +623,52 @@ function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
         setTimeout(check, interval);
       }
     }
+  });
+}
+
+/**
+ * Wait for a Wi-Fi connection to be established after defineNetwork has been
+ * called. Unlike waitForWiFi, this does not check whether networks are
+ * configured first (we already know one was just requested) and uses the
+ * platform's network address API instead of hardcoding an interface name.
+ *
+ * @param {number} maxAttempts - Maximum number of attempts
+ * @param {number} interval - Interval at which to check, in milliseconds
+ * @returns {Promise<void>} Resolves when connected, rejects if not connected
+ *   after maxAttempts.
+ */
+function waitForConnection(maxAttempts: number, interval: number): Promise<void> {
+  return new Promise(function (resolve, reject) {
+    let attempts = 0;
+
+    async function check(): Promise<void> {
+      attempts++;
+      try {
+        let addresses: NetworkAddresses;
+        if (Platform.implemented('getNetworkAddressesAsync')) {
+          addresses = await Platform.getNetworkAddressesAsync();
+        } else if (Platform.implemented('getNetworkAddresses')) {
+          addresses = Platform.getNetworkAddresses();
+        } else {
+          throw new Error('Unable to retrieve network addresses on this platform');
+        }
+        if (addresses.wlan && addresses.wlan.ip) {
+          console.log('wifi-setup: waitForConnection: Wi-Fi connected with IP', addresses.wlan.ip);
+          resolve();
+          return;
+        }
+      } catch (e) {
+        console.log('wifi-setup: waitForConnection: error checking address:', e);
+      }
+      console.log('wifi-setup: waitForConnection: No Wi-Fi address on attempt', attempts);
+      if (attempts >= maxAttempts) {
+        console.error('wifi-setup: waitForConnection: giving up.');
+        reject();
+      } else {
+        setTimeout(check, interval);
+      }
+    }
+
+    check();
   });
 }

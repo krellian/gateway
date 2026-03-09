@@ -10,6 +10,7 @@ RUN set -x && \
         arping \
         autoconf \
         build-essential \
+        dnsmasq \
         ffmpeg \
         git \
         iputils-ping \
@@ -34,6 +35,7 @@ RUN set -x && \
         zlib1g-dev && \
     apt clean && \
     rm -rf /var/lib/apt/lists/* && \
+    rm -f /etc/init.d/dnsmasq && \
     groupadd -g 997 gpio && \
     usermod -a -G sudo,dialout,gpio node && \
     echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
