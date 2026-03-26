@@ -59,6 +59,8 @@ RUN set -x && \
 USER root
 RUN cp /root/webthings/gateway/tools/udevadm /bin/udevadm && \
     cp /root/webthings/gateway/docker/avahi-daemon.conf /etc/avahi/ && \
+    cp /root/webthings/gateway/docker/usb-monitor.sh /usr/local/bin/usb-monitor.sh && \
+    chmod +x /usr/local/bin/usb-monitor.sh && \
     cp /root/webthings/gateway/docker/init.sh /
 
 ENTRYPOINT ["/init.sh"]
