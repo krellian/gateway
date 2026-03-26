@@ -1,4 +1,4 @@
-version: "2.1"
+version: "2.4"
 
 services:
   webthings-gateway:
@@ -24,16 +24,34 @@ services:
     labels:
       io.balena.features.dbus: '1'
       io.balena.features.supervisor-api: '1'
-    ## Add network admin capability for dnsmasq to use
+      io.balena.features.sysfs: '1'
     cap_add:
+      ## Network admin capability for dnsmasq
       - NET_ADMIN
-    # Provide access to first USB device
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-    # If other devices are needed, e.g. USB dongles, enable them here.
-    #  - /dev/ttyUSB0:/dev/ttyUSB0
+    # USB serial devices are detected dynamically at runtime by the
+    # usb-monitor.sh script rather than being statically mapped here.
+    # This means USB dongles can be plugged/unplugged without restarting
+    # the container. See docker/usb-monitor.sh for details.
+    #
+    # The usb-cgroup-helper sidecar writes cgroup device-whitelist rules
+    # so that device nodes created via mknod are actually accessible.
     # If Bluetooth, the container needs to run in privileged mode.
     #privileged: true
+
+  # Tiny privileged sidecar that whitelists USB serial device classes
+  # (ttyACM major 166, ttyUSB major 188) in the gateway container's
+  # cgroup. This allows the gateway to access USB dongles without
+  # running privileged itself. See docker/usb-cgroup-helper/ for details.
+  usb-cgroup-helper:
+    build: docker/usb-cgroup-helper
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - "GATEWAY_SERVICE=webthings-gateway"
+    labels:
+      io.balena.features.balena-socket: '1'
+      io.balena.features.sysfs: '1'
+      io.balena.features.procfs: '1'
 
 volumes:
   webthings-data:

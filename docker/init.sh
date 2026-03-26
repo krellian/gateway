@@ -29,6 +29,10 @@ chown -R root:root /root/.webthings
 # Store data in root's home directory
 export WEBTHINGS_HOME=/root/.webthings
 
+# Start the USB device monitor in the background so that USB serial
+# devices (e.g. Zigbee dongles) are dynamically created/removed in /dev
+/usr/local/bin/usb-monitor.sh &
+
 # Run the gateway as root with production configuration
 cd /root/webthings/gateway
 NODE_ENV=production ./run-app.sh
