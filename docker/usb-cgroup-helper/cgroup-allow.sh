@@ -17,8 +17,6 @@
 #   io.balena.features.procfs         (host /proc for cgroup path discovery)
 #   privileged: true
 
-set -e
-
 GATEWAY_SERVICE="${GATEWAY_SERVICE:-webthings-gateway}"
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 BALENA_SOCKET="/var/run/balena-engine.sock"
@@ -38,7 +36,7 @@ get_gateway_container_id() {
     local id
     id=$(curl -sf --unix-socket "$BALENA_SOCKET" \
         "http://localhost/containers/json?filters=%7B%22label%22%3A%5B%22io.balena.service-name%3D${GATEWAY_SERVICE}%22%5D%7D" \
-        | sed -n 's/.*"Id":"\([a-f0-9]*\)".*/\1/p' | head -1)
+        | jq -r '.[0].Id // empty' 2>/dev/null)
     echo "$id"
 }
 
@@ -52,7 +50,7 @@ find_devices_allow() {
     local host_pid
     host_pid=$(curl -sf --unix-socket "$BALENA_SOCKET" \
         "http://localhost/containers/${container_id}/json" \
-        | sed -n 's/.*"Pid":\([0-9]*\).*/\1/p' | head -1)
+        | jq -r '.State.Pid // empty' 2>/dev/null)
 
     if [ -n "$host_pid" ] && [ "$host_pid" != "0" ]; then
         # Read the actual cgroup path from the container's procfs entry
