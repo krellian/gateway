@@ -48,6 +48,7 @@ RUN pipx install cookiecutter && \
 WORKDIR /root/webthings/gateway
 RUN set -x && \
     CPPFLAGS="-DPNG_ARM_NEON_OPT=0" npm ci && \
+    npm rebuild sqlite3 --build-from-source && \
     npm run build && \
     rm -rf ./node_modules/gifsicle && \
     rm -rf ./node_modules/mozjpeg && \
