@@ -356,7 +356,7 @@ function scan(): Promise<WirelessNetwork[]> {
  * @returns {boolean} Boolean indicating success of the command.
  */
 async function startAP(ipaddr: string): Promise<boolean> {
-  let ssid = await getHotspotSsid();
+  const ssid = await getHotspotSsid();
 
   // Attempt to start the access point
   let modeSuccess: boolean;
@@ -524,7 +524,7 @@ export function isWiFiConfigured(): Promise<boolean> {
           }
 
           const ipaddr = config.get('wifi.ap.ipaddr') as string;
-          let success = await startAP(ipaddr);
+          const success = await startAP(ipaddr);
           if (!success) {
             console.error('wifi-setup: isWiFiConfigured: failed to start AP');
           }
@@ -544,36 +544,38 @@ export function isWiFiConfigured(): Promise<boolean> {
  *                    promise is rejected.
  */
 function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
-  return new Promise(async function (resolve, reject) {
+  return new Promise(function (resolve, reject) {
     let attempts = 0;
 
-    // first, see if any networks are already configured
-    let status: WirelessMode;
-    if (Platform.implemented('getWirelessModeAsync')) {
-      status = await Platform.getWirelessModeAsync();
-    } else if (Platform.implemented('getWirelessMode')) {
-      status = Platform.getWirelessMode();
-    } else {
-      throw new Error('Unable to retrieve wireless mode on this platform');
-    }
-    if (status.enabled && status.mode === 'sta') {
-      // WiFi is already connected, just verify we have an address
-      console.log('wifi-setup: waitForWiFi: already connected');
-      check();
-    } else if (
-      status.options &&
-      status.options.networks &&
-      (<string[]>status.options.networks).length > 0
-    ) {
-      // there's at least one wifi network configured. Let's wait to see if it
-      // will connect.
-      console.log('wifi-setup: waitForWiFi: networks exist:', status.options.networks);
-      check();
-    } else {
-      // No wifi network configured. Let's skip the wait and start the setup
-      // immediately.
-      reject();
-    }
+    const start = async (): Promise<void> => {
+      // first, see if any networks are already configured
+      let status: WirelessMode;
+      if (Platform.implemented('getWirelessModeAsync')) {
+        status = await Platform.getWirelessModeAsync();
+      } else if (Platform.implemented('getWirelessMode')) {
+        status = Platform.getWirelessMode();
+      } else {
+        throw new Error('Unable to retrieve wireless mode on this platform');
+      }
+      if (status.enabled && status.mode === 'sta') {
+        // WiFi is already connected, just verify we have an address
+        console.log('wifi-setup: waitForWiFi: already connected');
+        check();
+      } else if (
+        status.options &&
+        status.options.networks &&
+        (<string[]>status.options.networks).length > 0
+      ) {
+        // there's at least one wifi network configured. Let's wait to see if it
+        // will connect.
+        console.log('wifi-setup: waitForWiFi: networks exist:', status.options.networks);
+        check();
+      } else {
+        // No wifi network configured. Let's skip the wait and start the setup
+        // immediately.
+        reject();
+      }
+    };
 
     async function check(): Promise<void> {
       attempts++;
@@ -623,6 +625,10 @@ function waitForWiFi(maxAttempts: number, interval: number): Promise<void> {
         setTimeout(check, interval);
       }
     }
+
+    start().catch((error) => {
+      reject(error);
+    });
   });
 }
 

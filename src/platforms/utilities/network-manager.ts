@@ -140,7 +140,7 @@ class NetworkManager {
             console.error(error);
             reject();
           }
-          iface.getProperty('State', (error, state: any) => {
+          iface.getProperty('State', (error, state: number) => {
             if (error) {
               console.error(error);
               reject();
@@ -1093,6 +1093,7 @@ class NetworkManager {
       );
     });
   }
+
   /**
    * List all saved connection profiles.
    *
