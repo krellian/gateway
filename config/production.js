@@ -33,7 +33,7 @@ module.exports = {
 
   addonManager: {
     // URLs of add-on lists to parse, in order
-    listUrls: ['https://api.webthings.io:8443/addons'],
+    listUrls: ['https://api.krellian.net:8443/addons'],
 
     // Whether or not to allow installation of test-only add-ons
     testAddons: false,
@@ -49,10 +49,10 @@ module.exports = {
     enabled: true,
 
     // Endpoint of the PageKite server
-    registration_endpoint: 'https://api.webthings.io:8443',
+    registration_endpoint: 'https://api.krellian.net:8443',
 
     // Base domain
-    domain: 'webthings.io',
+    domain: 'krellian.net',
 
     // Command to run PageKite
     pagekite_cmd: path.normalize(path.join(process.cwd(), 'pagekite.py')),
@@ -61,12 +61,12 @@ module.exports = {
     port: 443,
 
     // Email address to use during certificate generation
-    certemail: 'noreply@webthings.io',
+    certemail: 'noreply@krellian.com',
   },
 
   updates: {
-    // URL of update server
-    url: 'https://api.webthings.io:8443/releases',
+    // URL of update server (not actually used)
+    url: 'https://api.krellian.net:8443/releases',
 
     // Whether or not to allow prerelease updates
     allowPrerelease: false,

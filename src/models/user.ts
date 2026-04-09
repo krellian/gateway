@@ -74,8 +74,8 @@ export default class User {
 
   async generateMfaParams(): Promise<{ secret: string; url: string }> {
     const secret = speakeasy.generateSecret({
-      issuer: 'WebThings Gateway',
-      name: `WebThings:${this.email}`,
+      issuer: 'Krellian Hub',
+      name: `Krellian:${this.email}`,
       length: 64,
     });
 
