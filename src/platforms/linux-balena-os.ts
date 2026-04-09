@@ -777,9 +777,7 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
     // Extract the gateway IP from the connection's IPv4 addresses
     // addresses is [[ipInt, prefix, gatewayInt]] stored as little-endian integers
     if (!settings.ipv4 || !settings.ipv4.addresses || settings.ipv4.addresses.length < 1) {
-      console.error(
-        'No IPv4 address configured on Wi-Fi connection, cannot start DHCP setDhcpServerStatusAsyncserver'
-      );
+      console.error('No IPv4 address configured on Wi-Fi connection, cannot start DHCP server');
       return false;
     }
     const ipInt = settings.ipv4.addresses[0][0];
@@ -977,7 +975,7 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
     } catch (error) {
       console.error('Error whilst attempting to retrieve system hostname from supervisor API');
       // Fall back to getting the hostname from /etc/hostname
-      //return fs.readFileSync('/etc/hostname', 'utf8').trim();
+      // return fs.readFileSync('/etc/hostname', 'utf8').trim();
       return '';
     }
   }
@@ -1142,7 +1140,7 @@ export class LinuxBalenaOSPlatform extends BasePlatform {
       synchronized = await NetworkManager.getNTPSynchronized();
       return synchronized;
     } catch (error) {
-      console.error('Error retrieving NTP synchronised status: ' + error);
+      console.error(`Error retrieving NTP synchronised status: ${error}`);
       return false;
     }
   }
