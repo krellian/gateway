@@ -89,8 +89,8 @@ jobs:
             echo "Unexpected download output: ${DOWNLOAD_TARGET}"
             exit 1
           fi
-          # Configure the OS image to use the fleet, explicitly setting version to avoid image version detection failures
-          balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --version latest
+          # Configure the OS image non-interactively for CI (ethernet avoids WiFi prompts)
+          balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --version latest --config-network ethernet
           # Set the default hostname of the OS image to gateway
           balena config write --drive "${IMAGE_PATH}" hostname gateway
           echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
