@@ -47,8 +47,21 @@ jobs:
       - name: Install balena CLI
         run: npm install -g balena-cli
 
+      - name: Resolve balena CLI path
+        run: |
+          set -euo pipefail
+          BALENA_BIN="$(npm prefix -g)/bin/balena"
+          if [ ! -x "${BALENA_BIN}" ]; then
+            echo "Could not find npm-installed balena CLI at ${BALENA_BIN}"
+            exit 1
+          fi
+          echo "BALENA_BIN=${BALENA_BIN}" >> "$GITHUB_ENV"
+          "${BALENA_BIN}" version
+
       - name: Log in to balenaCloud
-        run: balena login --token "${BALENA_TOKEN}"
+        run: |
+          set -euo pipefail
+          "${BALENA_BIN}" login --token "${BALENA_TOKEN}"
 
       - name: Build and push Docker image to balenaCloud
         id: deploy_release
@@ -56,9 +69,9 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          balena deploy "${BALENA_FLEET}" --build --draft --source . --release-tag version "${TAG_NAME}"
+          "${BALENA_BIN}" deploy "${BALENA_FLEET}" --build --draft --source . --release-tag version "${TAG_NAME}"
           # Get the commit of the release that was just created for preloading, in case of duplicates
-          RELEASE_COMMIT="$(balena release list "${BALENA_FLEET}" --json | jq -r --arg tag "${TAG_NAME}" '[.[] | select((.release_tag // []) | map(select(.tag_key == "version" and .value == $tag)) | length > 0)] | sort_by(.created_at) | last | .commit // empty')"
+          RELEASE_COMMIT="$("${BALENA_BIN}" release list "${BALENA_FLEET}" --json | jq -r --arg tag "${TAG_NAME}" '[.[] | select((.release_tag // []) | map(select(.tag_key == "version" and .value == $tag)) | length > 0)] | sort_by(.created_at) | last | .commit // empty')"
           if [ -z "${RELEASE_COMMIT}" ]; then
             echo "Failed to resolve release commit for tag ${TAG_NAME}"
             exit 1
@@ -71,28 +84,12 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # Store the path to the balena executable for later
-          BALENA_BIN="$(command -v balena)"
           IMAGE_PATH="gateway-${TAG_NAME}.img"
-          DOWNLOAD_TARGET="balena-os-download-${TAG_NAME}"
-          rm -rf "${DOWNLOAD_TARGET}"
-          # Download a base balenaOS image. Older CLI versions may unpack to a directory.
-          balena os download "${BALENA_DEVICE_TYPE}" --output "${DOWNLOAD_TARGET}" --version latest
-          if [ -d "${DOWNLOAD_TARGET}" ]; then
-            FOUND_IMAGE="$(find "${DOWNLOAD_TARGET}" -type f -name '*.img' | head -n 1)"
-            if [ -z "${FOUND_IMAGE}" ]; then
-              echo "No .img file found in downloaded output: ${DOWNLOAD_TARGET}"
-              exit 1
-            fi
-            mv "${FOUND_IMAGE}" "${IMAGE_PATH}"
-          elif [ -f "${DOWNLOAD_TARGET}" ]; then
-            mv "${DOWNLOAD_TARGET}" "${IMAGE_PATH}"
-          else
-            echo "Unexpected download output: ${DOWNLOAD_TARGET}"
-            exit 1
-          fi
+          rm -f "${IMAGE_PATH}"
+          # Download a raw disk image for preload rather than installation media.
+          "${BALENA_BIN}" os download "${BALENA_DEVICE_TYPE}" --output "${IMAGE_PATH}" --version latest --type disk-image
           # Configure the OS image non-interactively for CI
-          balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --config-network ethernet
+          "${BALENA_BIN}" os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --config-network ethernet
           # Set the default hostname of the OS image to gateway, using sudo and the stored absolute path of the binary
           sudo "${BALENA_BIN}" config write --drive "${IMAGE_PATH}" hostname gateway
           echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
@@ -101,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           # Preload the release that was just created, by commit to be sure it's the right one
-          balena preload "${{ steps.os_image.outputs.image_path }}" --fleet "${BALENA_FLEET}" --commit "${{ steps.deploy_release.outputs.release_commit }}"
+          "${BALENA_BIN}" preload "${{ steps.os_image.outputs.image_path }}" --fleet "${BALENA_FLEET}" --commit "${{ steps.deploy_release.outputs.release_commit }}"
 
       - name: Compress image for GitHub release
         id: release_asset
