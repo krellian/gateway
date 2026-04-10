@@ -72,8 +72,8 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE_PATH="gateway-${TAG_NAME}.img"
-          # Download a base balenaOS image using the latest host OS version
-          balena os download "${BALENA_DEVICE_TYPE}" --output "${IMAGE_PATH}" --version latest
+          # Download a base balenaOS disk image so os configure can inspect and modify it
+          balena os download "${BALENA_DEVICE_TYPE}" --output "${IMAGE_PATH}" --version latest --type disk-image
           # Configure the OS image to use the Krellian Hub fleet
           balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}"
           # Set the default hostname of the OS image to gateway
