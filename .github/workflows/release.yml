@@ -92,7 +92,7 @@ jobs:
           # Configure the OS image non-interactively for CI, forcing the downloaded device type
           balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --config-network ethernet
           # Set the default hostname of the OS image to gateway
-          balena config write --drive "${IMAGE_PATH}" hostname gateway
+          sudo balena config write --drive "${IMAGE_PATH}" hostname gateway
           echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
 
       - name: Preload gateway release into image
