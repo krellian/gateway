@@ -86,10 +86,14 @@ jobs:
           set -euo pipefail
           IMAGE_PATH="gateway-${TAG_NAME}.img"
           rm -f "${IMAGE_PATH}"
-          # Download a raw disk image for preload rather than installation media.
-          "${BALENA_BIN}" os download "${BALENA_DEVICE_TYPE}" --output "${IMAGE_PATH}" --version latest --type disk-image
+          # Intel NUC uses balena's default flasher image, which can be preloaded directly.
+          "${BALENA_BIN}" os download "${BALENA_DEVICE_TYPE}" --output "${IMAGE_PATH}" --version latest
+          if [ ! -f "${IMAGE_PATH}" ]; then
+            echo "Expected balenaOS image file was not created at ${IMAGE_PATH}"
+            exit 1
+          fi
           # Configure the OS image non-interactively for CI
-          "${BALENA_BIN}" os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --config-network ethernet
+          "${BALENA_BIN}" os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --device-type "${BALENA_DEVICE_TYPE}" --config-network ethernet
           # Set the default hostname of the OS image to gateway, using sudo and the stored absolute path of the binary
           sudo "${BALENA_BIN}" config write --drive "${IMAGE_PATH}" hostname gateway
           echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
