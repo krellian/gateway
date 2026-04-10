@@ -71,6 +71,8 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          # Store the path to the balena executable for later
+          BALENA_BIN="$(command -v balena)"
           IMAGE_PATH="gateway-${TAG_NAME}.img"
           DOWNLOAD_TARGET="balena-os-download-${TAG_NAME}"
           rm -rf "${DOWNLOAD_TARGET}"
@@ -91,8 +93,8 @@ jobs:
           fi
           # Configure the OS image non-interactively for CI, forcing the downloaded device type
           balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --config-network ethernet
-          # Set the default hostname of the OS image to gateway
-          sudo balena config write --drive "${IMAGE_PATH}" hostname gateway
+          # Set the default hostname of the OS image to gateway, using sudo and the stored absolute path of the binary
+          sudo "${BALENA_BIN}" config write --drive "${IMAGE_PATH}" hostname gateway
           echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
 
       - name: Preload gateway release into image
