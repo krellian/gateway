@@ -72,8 +72,23 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE_PATH="gateway-${TAG_NAME}.img"
-          # Download a base balenaOS disk image so os configure can inspect and modify it
-          balena os download "${BALENA_DEVICE_TYPE}" --output "${IMAGE_PATH}" --version latest --type disk-image
+          DOWNLOAD_TARGET="balena-os-download-${TAG_NAME}"
+          rm -rf "${DOWNLOAD_TARGET}"
+          # Download a base balenaOS image. Older CLI versions may unpack to a directory.
+          balena os download "${BALENA_DEVICE_TYPE}" --output "${DOWNLOAD_TARGET}" --version latest
+          if [ -d "${DOWNLOAD_TARGET}" ]; then
+            FOUND_IMAGE="$(find "${DOWNLOAD_TARGET}" -type f -name '*.img' | head -n 1)"
+            if [ -z "${FOUND_IMAGE}" ]; then
+              echo "No .img file found in downloaded output: ${DOWNLOAD_TARGET}"
+              exit 1
+            fi
+            mv "${FOUND_IMAGE}" "${IMAGE_PATH}"
+          elif [ -f "${DOWNLOAD_TARGET}" ]; then
+            mv "${DOWNLOAD_TARGET}" "${IMAGE_PATH}"
+          else
+            echo "Unexpected download output: ${DOWNLOAD_TARGET}"
+            exit 1
+          fi
           # Configure the OS image to use the Krellian Hub fleet
           balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}"
           # Set the default hostname of the OS image to gateway
