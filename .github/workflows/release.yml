@@ -42,7 +42,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install balena CLI
         run: npm install -g balena-cli
@@ -90,7 +90,7 @@ jobs:
             exit 1
           fi
           # Configure the OS image non-interactively for CI, forcing the downloaded device type
-          balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --device-type "${BALENA_DEVICE_TYPE}" --version latest --config-network ethernet
+          balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --config-network ethernet
           # Set the default hostname of the OS image to gateway
           balena config write --drive "${IMAGE_PATH}" hostname gateway
           echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
