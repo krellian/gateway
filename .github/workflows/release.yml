@@ -1,0 +1,125 @@
+name: Release
+
+# Trigger on any tag for now
+on:
+  push:
+    tags:
+      - '*'
+
+# Add write permission so a release can be created
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      BALENA_TOKEN: ${{ secrets.BALENA_TOKEN }}
+      BALENA_FLEET: ${{ vars.BALENA_FLEET }}
+      BALENA_DEVICE_TYPE: ${{ vars.BALENA_DEVICE_TYPE }}
+    steps:
+      - name: Check required configuration
+        run: |
+          # Exit on error, unset variables or pipeline failures
+          set -euo pipefail
+          # Check for needed secrets and variables
+          if [ -z "${BALENA_TOKEN:-}" ]; then
+            echo "Missing required secret: BALENA_TOKEN"
+            exit 1
+          fi
+          if [ -z "${BALENA_FLEET:-}" ]; then
+            echo "Missing required repository variable: BALENA_FLEET"
+            exit 1
+          fi
+          if [ -z "${BALENA_DEVICE_TYPE:-}" ]; then
+            echo "Missing required repository variable: BALENA_DEVICE_TYPE"
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install balena CLI
+        run: npm install -g balena-cli
+
+      - name: Log in to balenaCloud
+        run: balena login --token "${BALENA_TOKEN}"
+
+      - name: Build and push Docker image to balenaCloud
+        id: deploy_release
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          balena deploy "${BALENA_FLEET}" --build --draft --source . --release-tag version "${TAG_NAME}"
+          # Get the commit of the release that was just created for preloading, in case of duplicates
+          RELEASE_COMMIT="$(balena release list "${BALENA_FLEET}" --json | jq -r --arg tag "${TAG_NAME}" '[.[] | select((.release_tag // []) | map(select(.tag_key == "version" and .value == $tag)) | length > 0)] | sort_by(.created_at) | last | .commit // empty')"
+          if [ -z "${RELEASE_COMMIT}" ]; then
+            echo "Failed to resolve release commit for tag ${TAG_NAME}"
+            exit 1
+          fi
+          echo "release_commit=${RELEASE_COMMIT}" >> "$GITHUB_OUTPUT"
+
+      - name: Download and configure balenaOS image
+        id: os_image
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Store the path to the balena executable for later
+          BALENA_BIN="$(command -v balena)"
+          IMAGE_PATH="gateway-${TAG_NAME}.img"
+          DOWNLOAD_TARGET="balena-os-download-${TAG_NAME}"
+          rm -rf "${DOWNLOAD_TARGET}"
+          # Download a base balenaOS image. Older CLI versions may unpack to a directory.
+          balena os download "${BALENA_DEVICE_TYPE}" --output "${DOWNLOAD_TARGET}" --version latest
+          if [ -d "${DOWNLOAD_TARGET}" ]; then
+            FOUND_IMAGE="$(find "${DOWNLOAD_TARGET}" -type f -name '*.img' | head -n 1)"
+            if [ -z "${FOUND_IMAGE}" ]; then
+              echo "No .img file found in downloaded output: ${DOWNLOAD_TARGET}"
+              exit 1
+            fi
+            mv "${FOUND_IMAGE}" "${IMAGE_PATH}"
+          elif [ -f "${DOWNLOAD_TARGET}" ]; then
+            mv "${DOWNLOAD_TARGET}" "${IMAGE_PATH}"
+          else
+            echo "Unexpected download output: ${DOWNLOAD_TARGET}"
+            exit 1
+          fi
+          # Configure the OS image non-interactively for CI
+          balena os configure "${IMAGE_PATH}" --fleet "${BALENA_FLEET}" --config-network ethernet
+          # Set the default hostname of the OS image to gateway, using sudo and the stored absolute path of the binary
+          sudo "${BALENA_BIN}" config write --drive "${IMAGE_PATH}" hostname gateway
+          echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
+
+      - name: Preload gateway release into image
+        run: |
+          set -euo pipefail
+          # Preload the release that was just created, by commit to be sure it's the right one
+          balena preload "${{ steps.os_image.outputs.image_path }}" --fleet "${BALENA_FLEET}" --commit "${{ steps.deploy_release.outputs.release_commit }}"
+
+      - name: Compress image for GitHub release
+        id: release_asset
+        run: |
+          set -euo pipefail
+          IMAGE_PATH="${{ steps.os_image.outputs.image_path }}"
+          ARCHIVE_PATH="${IMAGE_PATH}.xz"
+          xz -T0 -z -f "${IMAGE_PATH}"
+          sha256sum "${ARCHIVE_PATH}" > "${ARCHIVE_PATH}.sha256"
+          echo "archive_path=${ARCHIVE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=${ARCHIVE_PATH}.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release and attach image
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.release_asset.outputs.archive_path }}
+            ${{ steps.release_asset.outputs.checksum_path }}
