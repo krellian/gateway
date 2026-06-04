@@ -16,11 +16,6 @@ services:
       - "DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket"
     volumes:
       - webthings-data:/root/.webthings
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "1m"
-        max-file: "10"
     labels:
       io.balena.features.dbus: '1'
       io.balena.features.supervisor-api: '1'
