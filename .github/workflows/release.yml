@@ -87,7 +87,7 @@ jobs:
           IMAGE_PATH="gateway-${TAG_NAME}.img"
           rm -f "${IMAGE_PATH}"
           # Intel NUC uses balena's default flasher image, which can be preloaded directly.
-          "${BALENA_BIN}" os download "${BALENA_DEVICE_TYPE}" --output "${IMAGE_PATH}" --version latest
+          "${BALENA_BIN}" os download "${BALENA_DEVICE_TYPE}" --output "${IMAGE_PATH}" --version 6.11.13
           if [ ! -f "${IMAGE_PATH}" ]; then
             echo "Expected balenaOS image file was not created at ${IMAGE_PATH}"
             exit 1
