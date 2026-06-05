@@ -41,6 +41,10 @@ services:
     build: docker/usb-cgroup-helper
     restart: unless-stopped
     privileged: true
+    # Send SIGTERM to stop the container so it can clean up and exit cleanly
+    stop_signal: SIGTERM
+    # Give the container 10 seconds to stop, otherwise send a SIGKILL
+    stop_grace_period: 10s
     environment:
       - "GATEWAY_SERVICE=webthings-gateway"
     labels:
