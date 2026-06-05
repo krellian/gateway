@@ -100,6 +100,14 @@ apply_rules() {
     done
 }
 
+# Interrupt sleep and stop cleanly if SIGTERM sent 
+cleanup() {
+    log "received stop signal, cleaning up and exiting"
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT
+
 # ── main loop ────────────────────────────────────────────────────────
 
 log "starting (gateway service: ${GATEWAY_SERVICE})"
