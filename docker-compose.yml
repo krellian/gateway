@@ -6,6 +6,10 @@ services:
     build: .
     restart: unless-stopped
     network_mode: host
+    # Send SIGTERM to stop the container so it can clean up and exit cleanly
+    stop_signal: SIGTERM
+    # Give the container 10 seconds to stop, otherwise send a SIGKILL
+    stop_grace_period: 10s
     # "ports" are ignored because of "network_mode: host". Either use "ports"
     # or "network_mode: host".
     #ports:
