@@ -97,7 +97,7 @@ jobs:
           # Set the default hostname of the OS image to gateway, using sudo and the stored absolute path of the binary
           sudo "${BALENA_BIN}" config write --drive "${IMAGE_PATH}" hostname gateway
           # Add a public SSH key so anyone with the corresponding private key can SSH in
-          sudo "${BALENA_BIN}" config write --drive "${IMAGE_PATH}" os.sshKeys '["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXfEChAW3pGzW19PKOLAyz/icmCRTL9klmA9h5x9Ef6 admin@krellian.com"]'
+          sudo "${BALENA_BIN}" config write --drive "${IMAGE_PATH}" os.sshKeys "[\"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAXfEChAW3pGzW19PKOLAyz/icmCRTL9klmA9h5x9Ef6 admin@krellian.com\"]"
           echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
 
       - name: Preload gateway release into image
