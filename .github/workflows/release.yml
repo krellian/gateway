@@ -102,7 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           # Preload the release that was just created, by commit to be sure it's the right one
-          "${BALENA_BIN}" preload "${{ steps.os_image.outputs.image_path }}" --fleet "${BALENA_FLEET}" --commit "${{ steps.deploy_release.outputs.release_commit }}" --no-pin-device-to-release
+          "${BALENA_BIN}" preload "${{ steps.os_image.outputs.image_path }}" --fleet "${BALENA_FLEET}" --commit "${{ steps.deploy_release.outputs.release_commit }}" --no-pin-device-to-release --splash-image image/splash.png
 
       - name: Compress image for GitHub release
         id: release_asset
